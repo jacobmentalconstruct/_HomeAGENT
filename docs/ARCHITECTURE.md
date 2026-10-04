@@ -3,19 +3,15 @@
 _HomeAGENT is one Python process (plus an optional control-panel window). The normal chat path uses the standard library; the optional persistent memory cartridge uses Chroma. This page explains how the pieces fit and why. The Python package is called `agent_harness`, and `harness.py` is its entry point.
 
 ```
- phone / laptop                      this PC
-┌──────────────┐   HTTP   ┌────────────────────────────────────────────┐
-│ page (HTML)  │ ───────► │ interfaces/web.py   token check, routes    │
-└──────────────┘          │        │                                    │
-┌──────────────┐   HTTP   │        ▼                                    │
-│ control      │ ───────► │ conversation/       turns, replies, window  │
-│ panel (Tk)   │          │        │                                    │
-└──────────────┘          │        ▼                                    │
-   starts the server      │ models/             Ollama, llama.cpp       │ ──► local model servers
-   as a child process     │        │                                    │     (on this PC, keep on localhost)
-                          │ store/  SQLite event log  ◄─────────────────┘
-                          │ memory/ optional Chroma index ⇄ Ollama embeddings
-                          └────────────────────────────────────────────┘
+ phone / laptop           this PC
+┌────────────────┐       ┌──────────────────────────────────────────────────────┐
+│ page / panel   │─HTTP─►│ interfaces/web.py: token check and routes            │
+└────────────────┘       │ conversation/: turns, replies, window                │
+                         │ models/: Ollama and llama.cpp adapters               │
+                         │ store/: SQLite event log                             │
+                         │ memory/: optional Chroma index ⇄ Ollama embeddings   │
+                         │ models/ → local model servers                        │
+                         └──────────────────────────────────────────────────────┘
 ```
 
 ## Modules
@@ -50,7 +46,7 @@ Retrieved excerpts are added only when they fit. If necessary, older recent-cont
 1. The page posts the message. The server checks the token and reads the body (bounded) before routing.
 2. The conversation manager records the user turn. A conversation can have one reply in flight at a time.
 3. A worker thread takes a ticket for the chosen model's queue and waits its turn. Replies to one model run one at a time, first come first served, and waiting clients see their position.
-4. The window logic picks the newest messages that fit the model's context (below), and the backend adapter streams the reply.
+4. The window logic picks the newest messages that fit the model's context (below). When the conversation memory cartridge is enabled, it retrieves older turns from that conversation and adds excerpts that fit. The backend adapter then streams the reply.
 5. Text is pushed to every attached client as it arrives. When the reply ends, a `turn.assistant` event is recorded. If anything goes wrong, a `generation.failed` event is recorded with the reason and any partial text.
 
 A reply does not depend on any client: if a phone drops off, the reply finishes and is stored, and a reconnecting client is sent a snapshot of the text so far followed by the rest. A slow client is dropped rather than allowed to slow the reply.
@@ -79,7 +75,7 @@ The panel starts `harness.py serve` as a child process and talks to it over the 
 
 ## Choices worth knowing
 
-- **Standard library only.** Nothing to install, and nothing to keep patched.
+- **One optional dependency.** Ordinary chat uses Python's standard library; the conversation memory cartridge needs Chroma when enabled.
 - **One process, threads for replies.** A home GPU serves a few people, so a simple threaded server is enough.
 - **Plain JavaScript, no build step.** The page is one file, and renders all text as text, never as HTML.
 - **Keep backends on localhost.** Only this server needs to be reachable from your network. _HomeAGENT does not change how Ollama or llama.cpp listen (both default to localhost).

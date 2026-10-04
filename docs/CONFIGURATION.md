@@ -38,6 +38,14 @@ set:
 }
 ```
 
+| Memory key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Attach the conversation memory cartridge when `true`; restart after changing it. |
+| `store` | `"chroma"` | The only supported store is `chroma`. |
+| `embedding_backend` | `"ollama"` | ID of a configured Ollama backend used to make embeddings. |
+| `embedding_model` | `"nomic-embed-text"` | Name of the Ollama embedding model to pull and use. |
+| `top_k` | `4` | Number of older matches requested per reply, from 1 to 20. |
+
 Restart the server after changing this setting. The cartridge stores a persistent
 index in `runtime/memory/`; the conversation event log remains authoritative and
 missing entries are indexed from it before retrieval. Retrieval is limited to the
@@ -45,6 +53,10 @@ active conversation. The status endpoint reports whether memory is disabled,
 ready, or degraded. If the embedding model changes, stop the server and remove
 `runtime/memory/` to rebuild vectors with a consistent model. The original
 conversation history remains in `runtime/harness.sqlite3`.
+
+If a model is re-pulled or replaced under the same name, the cartridge detects
+the change only when its vector dimensions differ. Rebuild `runtime/memory/`
+manually if the model's embeddings changed without a name or dimension change.
 
 Indexing adds local embedding work and disk use. Chroma's persistent local client
 is suitable for this prototype; this is not a multi-process or networked store.
@@ -83,4 +95,4 @@ A llama.cpp server hosts one model, fixed when you start it, so its context size
 
 ## Where data lives
 
-`runtime/config.json` holds the settings and token. `runtime/harness.sqlite3` holds every conversation. Both are created on first run and ignored by git. Back them up, or delete them, as you like.
+`runtime/config.json` holds the settings and token. `runtime/harness.sqlite3` holds every conversation. When the conversation memory cartridge is enabled, `runtime/memory/` holds its derived Chroma index, including a plaintext copy of indexed conversation turns. Runtime data is ignored by git; back up the event log and config if you need to preserve conversations and access settings. The memory index can be rebuilt from the event log.

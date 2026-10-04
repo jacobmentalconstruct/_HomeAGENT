@@ -42,7 +42,7 @@ Approved: T2 (USER, 2026-10-04).
 Now: Verify public documentation and complete the full suite.
 Progress:
 - [x] Disable Chroma telemetry at client creation and test the setting.
-- [ ] Repair architecture, configuration, security, and README documentation.
+- [x] Repair architecture, configuration, security, and README documentation.
 - [ ] Run focused and full tests, inspect the diff, and park T2.
 
 Expected outcome: the optional conversation memory cartridge disables Chroma

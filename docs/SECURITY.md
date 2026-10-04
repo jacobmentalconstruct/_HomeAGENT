@@ -6,7 +6,7 @@ _HomeAGENT is built for a home network you trust. This page says what it protect
 
 - **Only people with the token can use it.** Every API request needs the token. It is compared in constant time, never written to the access log, and never placed in a URL that the server sees.
 - **Your models stay off the network.** Ollama and llama.cpp listen on `127.0.0.1` by default, and _HomeAGENT never asks them to do otherwise, so the only thing reachable from your network is this server. If you change how they listen, keeping them private is up to you.
-- **Your conversations stay on your machine.** They are stored in a local SQLite file. The program makes no calls to the internet and sends no telemetry.
+- **Your conversations stay on your machine.** They are stored in a local SQLite file. When enabled, the conversation memory cartridge also stores indexed conversation text in plaintext under `runtime/memory/`. The program makes no calls to the internet; Chroma telemetry is explicitly disabled.
 - **Model output cannot attack your browser.** The page shows all text as text and never as HTML.
 - **A misbehaving client cannot easily hurt the server.** Request bodies are capped at 1 MB, connections are capped, slow or silent clients time out, and the server refuses to start with the token turned off while listening beyond your own computer.
 - **The access log is safe to share.** It records time, client address, method, path, status and duration. It never records the token, headers or message text, and it strips control characters from anything a client sent.
@@ -32,4 +32,4 @@ _HomeAGENT is built for a home network you trust. This page says what it protect
 
 ## Reporting a problem
 
-If you find a security issue, please use this repository's private vulnerability reporting (the Security tab on GitHub) rather than a public issue.
+If you find a security issue, please use this repository's private vulnerability reporting (the Security tab on GitHub) rather than a public issue. This route requires private vulnerability reporting to be enabled in GitHub repository settings; it was enabled and checked on 2026-10-04.
