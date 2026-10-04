@@ -19,6 +19,35 @@ If a value is invalid, the server refuses to start and says which one. (`keep_al
 | `default_model` | `"ollama:qwen3.5:9b"` | The model new devices start on, as `backend_id:model`. You can also set it from the page. If it is not installed, the page uses the first chat model it finds. |
 | `system_prompt` | a short, honest-assistant prompt | The instruction sent ahead of every conversation. |
 | `keep_alive` | `"3m"` | How long Ollama keeps a model in GPU memory after its last reply. A shorter value, such as `"1m"`, frees the GPU sooner. |
+| `memory` | disabled | Optional local retrieval cartridge. See below. |
+
+## Conversation memory
+
+Memory is optional and disabled by default. To attach the v1 cartridge, install
+the optional dependency with `python -m pip install -r requirements-rag.txt`,
+pull an Ollama embedding model (for example `ollama pull nomic-embed-text`), then
+set:
+
+```json
+"memory": {
+  "enabled": true,
+  "store": "chroma",
+  "embedding_backend": "ollama",
+  "embedding_model": "nomic-embed-text",
+  "top_k": 4
+}
+```
+
+Restart the server after changing this setting. The cartridge stores a persistent
+index in `runtime/memory/`; the conversation event log remains authoritative and
+missing entries are indexed from it before retrieval. Retrieval is limited to the
+active conversation. The status endpoint reports whether memory is disabled,
+ready, or degraded. If the embedding model changes, stop the server and remove
+`runtime/memory/` to rebuild vectors with a consistent model. The original
+conversation history remains in `runtime/harness.sqlite3`.
+
+Indexing adds local embedding work and disk use. Chroma's persistent local client
+is suitable for this prototype; this is not a multi-process or networked store.
 
 ## Backends
 

@@ -24,7 +24,7 @@ A missing or wrong token gets `401`. The page itself (`GET /`) needs no token. R
 | `GET /api/conversations/{id}` | `{"id", "title", "open_generation", "window", "turns": [{"role", "text", "ts", "model", "failed", "truncated"}]}`. `window` describes what the latest reply was sent. |
 | `POST /api/conversations/{id}/messages` | Send a message: `{"text": "...", "model": "backend:model"}`. `202 {"generation_id": "..."}`. |
 | `GET /api/generations/{id}/stream` | Follow a reply as it is written (below). |
-| `GET /api/status` | `{"uptime_seconds", "replies_in_progress", "conversations", "default_model", "loaded"}`; `loaded` lists the models each backend holds in memory. |
+| `GET /api/status` | `{"uptime_seconds", "replies_in_progress", "conversations", "default_model", "loaded", "memory"}`; `memory` reports `enabled`, `state` (`disabled`, `ready`, or `degraded`), indexed entry count, and a short error when degraded. |
 | `POST /api/unload` | Unload models from GPU memory: `{"unloaded": {"ollama": ["model", ...]}}`. `409` while a reply is running. |
 
 Message text is limited to 20,000 characters and request bodies to 1 MB.
@@ -43,7 +43,7 @@ After that, one of these per line:
 | `type` | Fields | Meaning |
 |---|---|---|
 | `position` | `position` | Replies ahead of yours on this model. |
-| `running` | `window` | Your turn has come. `window` is `{"start", "sent", "dropped", "estimated_tokens", "budget", "chars", "messages"}`. |
+| `running` | `window` | Your turn has come. `window` includes context counts, retrieved `sources`, and memory state (`enabled`, `state`, `indexed`, `error`). Sources list older turns retrieved from this conversation and included in the prompt. |
 | `delta` | `text` | More of the reply. |
 | `done` | `summary` | The reply is complete: `{"stop_reason": "complete" or "truncated", "prompt_tokens", "reply_tokens"}`. |
 | `failed` | `error` | `{"reason", "message", "partial_text"}`. |

@@ -2,7 +2,7 @@
 
 A small, private chat server for local language models.
 
-Run it on the PC that has your GPU, then chat with it from any device on your home network, such as a phone or a laptop, in a plain web page. Models run through [Ollama](https://ollama.com) (the tested path) or a [llama.cpp](https://github.com/ggml-org/llama.cpp) server (supported, but so far tested only against a scripted fake), on the same machine. The program itself never contacts the internet. It needs **only Python's standard library**, so there is nothing to install.
+Run it on the PC that has your GPU, then chat with it from any device on your home network, such as a phone or a laptop, in a plain web page. Models run through [Ollama](https://ollama.com) (the tested path) or a [llama.cpp](https://github.com/ggml-org/llama.cpp) server (supported, but so far tested only against a scripted fake), on the same machine. The program itself never contacts the internet. Ordinary chat needs **only Python's standard library**. The optional vector memory cartridge needs Chroma; see [Configuration](docs/CONFIGURATION.md).
 
 ## What you get
 
@@ -11,12 +11,13 @@ Run it on the PC that has your GPU, then chat with it from any device on your ho
 - **A few controls on the page itself**, in the conversation list: **Free GPU memory** and **Make the selected model the default**.
 - **Private by design.** One access token, no accounts, no telemetry, no cloud calls. Conversations stay in a local SQLite file.
 - **Long conversations that keep working.** Each reply is sent the newest messages that fit the model's context. Older messages stay in the record and are marked in the page.
+- **Optional conversation recall.** Install and attach the local vector cartridge to retrieve relevant older turns from the conversation; see [Configuration](docs/CONFIGURATION.md).
 - **Shared-GPU friendly.** One reply runs at a time per model, with a visible queue position. A "Free GPU" button unloads models so you can use the GPU for something else.
 - **Sturdy.** Every failure has a named reason, a reply carries on if your phone drops off, and conversations survive restarts.
 
 ## Requirements
 
-- Python 3.10 or newer (developed on 3.13). No packages to install.
+- Python 3.10 or newer (developed on 3.13). No packages to install for ordinary chat.
 - [Ollama](https://ollama.com) running on the same machine, with at least one chat model pulled (for example `ollama pull qwen3.5:9b`). A llama.cpp server is also supported; see [Configuration](docs/CONFIGURATION.md).
 - Developed and tested on Windows 10 with an NVIDIA GPU. The server and page use only portable standard-library code. The control panel needs tkinter, which the standard Python installer for Windows includes.
 
@@ -95,4 +96,4 @@ Released under the MIT License. See [LICENSE.md](LICENSE.md).
 
 ## Scope
 
-This is a chat server, and deliberately nothing more. It has no tools, no accounts, and no memory beyond the conversation window. The llama.cpp adapter is covered by tests against a scripted fake server and has not yet been run against a real llama.cpp server. The data lives in `runtime/` next to the program (`config.json` and `harness.sqlite3`); both are created on first run and are ignored by git.
+This is a chat server, and deliberately nothing more. It has no tools, no accounts, and no automatic cross-conversation memory. The optional RAG cartridge searches only the active conversation and indexes recorded user and assistant turns as derived data. The llama.cpp adapter is covered by tests against a scripted fake server and has not yet been run against a real llama.cpp server. The data lives in `runtime/` next to the program (`config.json`, `harness.sqlite3`, and, when enabled, `memory/`); these are local runtime data and ignored by git.

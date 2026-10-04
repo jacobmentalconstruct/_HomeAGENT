@@ -1,6 +1,6 @@
 # Architecture
 
-_HomeAGENT is one Python process (plus an optional control-panel window) built only from the standard library. This page explains how the pieces fit and why. The Python package is called `agent_harness`, and `harness.py` is its entry point.
+_HomeAGENT is one Python process (plus an optional control-panel window). The normal chat path uses the standard library; the optional persistent memory cartridge uses Chroma. This page explains how the pieces fit and why. The Python package is called `agent_harness`, and `harness.py` is its entry point.
 
 ```
  phone / laptop                      this PC
@@ -14,6 +14,7 @@ _HomeAGENT is one Python process (plus an optional control-panel window) built o
    starts the server      │ models/             Ollama, llama.cpp       │ ──► local model servers
    as a child process     │        │                                    │     (on this PC, keep on localhost)
                           │ store/  SQLite event log  ◄─────────────────┘
+                          │ memory/ optional Chroma index ⇄ Ollama embeddings
                           └────────────────────────────────────────────┘
 ```
 
@@ -29,15 +30,20 @@ _HomeAGENT is one Python process (plus an optional control-panel window) built o
 | `conversation/manager.py` | Conversations and their turns, rebuilt from the log. |
 | `conversation/generation.py` | One reply per worker thread, and the first-come queue per model. |
 | `conversation/window.py` | Which messages fit in the model's context. |
+| `memory/cartridge.py` | Optional Chroma index, reconciled from recorded turns and queried only within the active conversation. |
 | `interfaces/web.py`, `page.html` | The HTTP server and the single-page chat. |
 | `interfaces/cli.py` | The command line. |
 | `interfaces/control.py`, `gui.py` | The control panel: its logic, and its window. |
 
-The code is layered so that each part has one owner. Interfaces use the conversation and model layers; the conversation layer uses the model layer, which uses the transport. Nothing below an interface imports it. A test (`tests/test_architecture.py`) fails on an import cycle, on core code importing an interface, on any third-party import, and on any module over 400 lines.
+The code is layered so that each part has one owner. Interfaces use the conversation and model layers; the conversation layer uses the model layer, which uses the transport. Nothing below an interface imports it. Optional Chroma is loaded by name only when memory is enabled. A test (`tests/test_architecture.py`) fails on an import cycle, on core code importing an interface, on any third-party import, and on any module over 400 lines.
 
 ## One source of truth: the event log
 
 Everything that happens is appended to a SQLite table (`conversation.created`, `turn.user`, `turn.assistant`, `generation.failed`). Nothing is edited or deleted. Each event also records who caused it: `USER` (a person), `AGENT` (the model's reply) or `SYSTEM` (the server, for example when a reply fails). The set of conversations, their titles and turns, and the last context window are all **rebuilt from the log at startup**. That keeps state simple, makes restarts safe, and means the record of what was said is never lost, even when old messages stop being sent to a model.
+
+When enabled, the memory cartridge indexes completed user and assistant turns as derived data. It uses Ollama's embedding endpoint and a persistent local Chroma collection. Before retrieval, it compares the event log with indexed event IDs and upserts missing turns, so interrupted indexing is repaired. A query is filtered by conversation ID. The index records its schema and embedding model identity; vector dimensions are checked against stored vectors. A mismatch degrades memory and asks the operator to rebuild the index from the event log. Memory failures do not stop chat.
+
+Retrieved excerpts are added only when they fit. If necessary, older recent-context messages are dropped first; the newest user message is retained or the existing clear context-limit failure is returned. Excerpts are marked as quoted context and their source event references are recorded with the reply window. Disable memory in config to detach it; this takes effect after restart.
 
 ## Life of a message
 
