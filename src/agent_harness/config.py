@@ -32,6 +32,8 @@ DEFAULTS = {
     "system_prompt": "You are a helpful assistant running privately on the user's home network. Be concise and honest.",
     # How long Ollama keeps a model in GPU memory after its last reply. Shorter frees the GPU sooner for other uses.
     "keep_alive": "3m",
+    "memory": {"enabled": False, "store": "chroma", "embedding_backend": "ollama",
+               "embedding_model": "nomic-embed-text", "top_k": 4},
 }
 
 
@@ -68,6 +70,16 @@ class Config:
     default_model: str
     system_prompt: str
     keep_alive: str
+    memory: MemoryConfig
+
+
+@dataclass(frozen=True)
+class MemoryConfig:
+    enabled: bool
+    store: str
+    embedding_backend: str
+    embedding_model: str
+    top_k: int
 
 
 def _positive(name: str, value: object, whole: bool = False) -> float:
@@ -155,6 +167,8 @@ def load_config(path: Path) -> Config:
     merged = {**DEFAULTS, **stored}
     if isinstance(stored.get("timeouts"), dict):
         merged["timeouts"] = {**DEFAULTS["timeouts"], **stored["timeouts"]}
+    if isinstance(stored.get("memory"), dict):
+        merged["memory"] = {**DEFAULTS["memory"], **stored["memory"]}
     token = merged.get("token")
     if token is None or (isinstance(token, str) and not token.strip()):  # missing, null or blank: make a new one
         merged["token"] = secrets.token_urlsafe(24)
@@ -189,6 +203,26 @@ def _build(merged: dict) -> Config:
     if reply > largest_reply(num_ctx):
         raise ConfigError(f"'max_reply_tokens' ({reply}) is too large for 'num_ctx' ({num_ctx}): it must be at most "
                           f"{largest_reply(num_ctx)} so the prompt keeps room.")
+    memory_raw = merged["memory"]
+    if not isinstance(memory_raw, dict):
+        raise ConfigError("'memory' must be an object.")
+    enabled = memory_raw.get("enabled")
+    if not isinstance(enabled, bool):
+        raise ConfigError("'memory.enabled' must be true or false.")
+    store = memory_raw.get("store")
+    if store != "chroma":
+        raise ConfigError("'memory.store' must be 'chroma'.")
+    embed_backend = _text("memory.embedding_backend", memory_raw.get("embedding_backend"))
+    embed_model = _text("memory.embedding_model", memory_raw.get("embedding_model"))
+    if not embed_backend.strip() or not embed_model.strip():
+        raise ConfigError("'memory.embedding_backend' and 'memory.embedding_model' must not be empty.")
+    top_k = int(_positive("memory.top_k", memory_raw.get("top_k"), whole=True))
+    if top_k > 20:
+        raise ConfigError("'memory.top_k' must be at most 20.")
+    if enabled and (embed_backend not in seen or not any(b.id == embed_backend and b.kind == "ollama"
+                                                        for b in backends)):
+        raise ConfigError("'memory.embedding_backend' must name a configured Ollama backend.")
     return Config(host, port, merged["require_token"], _token(merged["token"]), backends, timeouts, num_ctx, reply,
                   _text("default_model", merged["default_model"]), _text("system_prompt", merged["system_prompt"]),
-                  _text("keep_alive", merged["keep_alive"]))
+                  _text("keep_alive", merged["keep_alive"]),
+                  MemoryConfig(enabled, store, embed_backend, embed_model, top_k))

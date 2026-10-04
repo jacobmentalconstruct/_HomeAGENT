@@ -87,6 +87,18 @@ class BackendConfigTests(unittest.TestCase):
         self.assertEqual((cfg.timeouts.idle, cfg.timeouts.total), (5.5, 900))
         self.assertEqual([b.url for b in cfg.backends], ["http://h:1", "https://h:2"])
 
+    def test_memory_is_disabled_by_default_and_validates_cartridge_settings(self):
+        cfg, _ = self.load({})
+        self.assertFalse(cfg.memory.enabled)
+        cfg, _ = self.load({"memory": {"enabled": True, "embedding_model": "nomic-embed-text"}})
+        self.assertEqual((cfg.memory.store, cfg.memory.embedding_backend, cfg.memory.top_k),
+                         ("chroma", "ollama", 4))
+        for memory in (None, {"enabled": 1}, {"enabled": True, "store": "sqlite"},
+                       {"enabled": True, "embedding_backend": "missing"},
+                       {"enabled": True, "top_k": 21}, {"enabled": True, "top_k": 1.5}):
+            with self.subTest(memory=memory), self.assertRaises(ConfigError):
+                self.load({"memory": memory})
+
     def test_unknown_keys_are_ignored_and_kept(self):
         _, path = self.load({"my_note": {"model": "x"}, "token": "t" * 16})
         self.assertEqual(json.loads(path.read_text())["my_note"], {"model": "x"})
