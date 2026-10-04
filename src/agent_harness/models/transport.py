@@ -43,12 +43,12 @@ class Transport:
     def get_json(self, url: str, path: str) -> dict:
         return self._json(url, path, None)
 
-    def post_json(self, url: str, path: str, payload: dict) -> dict:
-        return self._json(url, path, payload)
+    def post_json(self, url: str, path: str, payload: dict, timeout: float | None = None) -> dict:
+        return self._json(url, path, payload, timeout)
 
-    def _json(self, url: str, path: str, payload: dict | None) -> dict:
+    def _json(self, url: str, path: str, payload: dict | None, timeout: float | None = None) -> dict:
         """One short JSON call. The listing timeout covers connecting and waiting together."""
-        limit = self.timeouts.listing
+        limit = timeout or self.timeouts.listing
         deadline = time.monotonic() + limit
         conn, base = self._connect(url, min(self.timeouts.connect, limit))
         try:

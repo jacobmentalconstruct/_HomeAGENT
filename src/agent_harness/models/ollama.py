@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Iterator
 
 from .backend import Backend, ChatStream
@@ -49,6 +50,29 @@ class OllamaBackend(Backend):
             return sorted(item["name"] for item in data["models"])
         except (KeyError, TypeError) as exc:
             raise BackendError("protocol_error", "Ollama's model list has an unexpected shape.") from exc
+
+    def embed(self, model: str, texts: list[str]) -> list[list[float]]:
+        """Return Ollama embeddings for a batch, validating shape and numeric values."""
+        data = self.transport.post_json(self.config.url, "/api/embed", {"model": model, "input": texts},
+                                        timeout=max(self.transport.timeouts.listing,
+                                                    self.transport.timeouts.first_byte))
+        if not isinstance(data, dict):
+            raise BackendError("protocol_error", "Ollama returned an unexpected embedding response.")
+        vectors = data.get("embeddings")
+        if not isinstance(vectors, list) or len(vectors) != len(texts):
+            raise BackendError("protocol_error", "Ollama returned an unexpected embedding batch.")
+        result: list[list[float]] = []
+        dimension = None
+        for vector in vectors:
+            if not isinstance(vector, list) or not vector:
+                raise BackendError("protocol_error", "Ollama returned an empty or invalid embedding.")
+            if dimension is None:
+                dimension = len(vector)
+            if len(vector) != dimension or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                                               or not math.isfinite(v) for v in vector):
+                raise BackendError("protocol_error", "Ollama returned inconsistent or non-finite embeddings.")
+            result.append([float(v) for v in vector])
+        return result
 
     def chat(self, model: str, messages: list[dict], options: dict | None = None) -> ChatStream:
         sent = {"num_ctx": self.num_ctx, "num_predict": self._cap(options)}

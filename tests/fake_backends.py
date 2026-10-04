@@ -73,6 +73,13 @@ class FakeBackend:
 
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if self.path == "/api/embed":
+                    vectors = []
+                    for text in body.get("input", []):
+                        lower = text.lower()
+                        vectors.append([1.0, 0.0] if any(word in lower for word in ("home", "cedar", "live"))
+                                       else [0.0, 1.0])
+                    return self._plain(200, json.dumps({"embeddings": vectors}).encode())
                 if self.path == "/api/generate":
                     if body.get("model") in fake.unload_fails:
                         return self._plain(400, b'{"error":"cannot unload"}')

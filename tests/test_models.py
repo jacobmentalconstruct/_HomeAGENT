@@ -262,6 +262,18 @@ class UnloadTests(Fakes):
 
 
 class ListingTests(Fakes):
+    def test_ollama_embedding_endpoint_returns_validated_vectors(self):
+        fake = self.fake("ollama")
+        backend = self.backend("ollama", fake)
+        vectors = backend.embed("nomic-embed-text", ["Where do I live?", "My office has a blue door."])
+        self.assertEqual(vectors, [[1.0, 0.0], [0.0, 1.0]])
+
+    def test_ollama_embedding_rejects_non_finite_vectors(self):
+        backend = self.backend("ollama", self.fake("ollama"))
+        with mock.patch.object(backend.transport, "post_json", return_value={"embeddings": [[float("nan")]]}):
+            with self.assertRaises(BackendError):
+                backend.embed("nomic-embed-text", ["test"])
+
     def test_each_protocol_lists_sorted_models(self):
         for kind in PROTOCOLS:
             with self.subTest(kind=kind):
