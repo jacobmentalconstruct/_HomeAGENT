@@ -98,7 +98,11 @@ class ConversationMemory:
                         self._dimensions = dimensions
                         metadata = dict(self._collection.metadata or {})
                         metadata["embedding_dimensions"] = dimensions
-                        self._collection.modify(metadata=metadata)
+                        metadata.pop("hnsw:space", None)  # Chroma rejects modifying immutable distance settings.
+                        try:
+                            self._collection.modify(metadata=metadata)
+                        except Exception:
+                            pass  # In-memory validation and the stored-vector fallback remain available.
                     ids = [f"event-{e.seq}" for e in batch]
                     self._collection.upsert(
                         ids=ids, embeddings=vectors, documents=documents,

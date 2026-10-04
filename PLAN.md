@@ -46,6 +46,7 @@ Progress:
 - [x] Add focused tests and update operator, API, architecture, and README docs.
 - [x] Run full verification, inspect the final diff, and tidy.
 - [x] Repair pass: scope reconciliation to the active conversation and persist embedding dimensions.
+- [x] Repair Chroma metadata update so dimensions persist without attempting to modify its immutable distance setting.
 - [x] Record retrieval watchlist for bounded query context, relevance filtering, and transient recovery.
 
 Expected outcome: optional persistent same-conversation retrieval, with the event
@@ -130,3 +131,25 @@ live cartridge switching, and unrelated cleanup.
   second review was attempted but could not run because the approval service
   reported the account usage limit. Git commit is also pending because the
   protected `.git` index requires the same unavailable approval path.
+- 2026-10-04 review repair: review identified that Chroma 1.3.5 rejects
+  `Collection.modify()` when copied metadata includes `hnsw:space`. Reproduced
+  the rejection against real Chroma with a disposable index. The cartridge now
+  drops only `hnsw:space` from the metadata update; real Chroma persisted the
+  768 dimension while its collection configuration remained cosine. A metadata
+  write failure alone is non-fatal because the dimension remains in memory and
+  reopen can recover it by sampling a stored vector. The test fake now rejects
+  attempts to modify `hnsw:space`; fresh-index retrieval, reopen, dimension
+  mismatch, and non-fatal metadata-write behavior are covered.
+- 2026-10-04 repair verification: focused command
+  `python -B -m unittest tests.test_memory tests.test_status tests.test_window tests.test_conversation`
+  passed 52 tests in 16.714 seconds. Full command
+  `python -B -m unittest discover -s tests` passed 192 tests in 139.302
+  seconds. A fresh runtime with Chroma 1.3.5, Ollama `nomic-embed-text`, and
+  `qwen2.5:1.5b` retrieved the older workshop-color turn into the actual model
+  prompt with source `conversation:2`, answered “violet”, and reported memory
+  ready with dimension 768. After a separate process restart, it recovered the
+  stored dimension, returned the same source reference in the actual prompt,
+  answered “violet”, and remained ready. Collection configuration stayed
+  cosine. All repair smoke runtime files were removed. The earlier T1 live
+  smoke recorded above predated the review repair pass and did not exercise this
+  first-embedding metadata update; this smoke was run after the fix.

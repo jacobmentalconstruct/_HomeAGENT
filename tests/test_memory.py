@@ -23,6 +23,8 @@ class Collection:
             self.rows[key] = {"embedding": vector, "document": document, "metadata": metadata}
 
     def modify(self, metadata):
+        if "hnsw:space" in metadata:
+            raise ValueError("Changing the distance function of a collection once it is created is not supported currently.")
         self.metadata = metadata
 
     def query(self, query_embeddings, n_results, where, include):
@@ -82,7 +84,29 @@ class MemoryTests(unittest.TestCase):
         memory.reconcile(self.events)
         self.assertEqual(set(self.collection.rows), {"event-1", "event-2", "event-3", "event-4"})
         self.assertEqual(memory.status()["indexed"], 4)
+        self.assertEqual(memory.status()["state"], "ready")
+        self.assertEqual(memory._dimensions, 2)
         self.assertEqual(self.collection.metadata["embedding_dimensions"], 2)
+        found = memory.retrieve("home", "a", self.events)
+        self.assertTrue(found)
+
+    def test_restart_recovers_dimensions_and_still_rejects_mismatch(self):
+        self.memory().reconcile(self.events)
+        reopened = self.memory()
+        self.assertEqual(reopened.status()["state"], "ready")
+        self.assertEqual(reopened._dimensions, 2)
+        reopened._embed = lambda texts: [[1.0, 2.0, 3.0] for _ in texts]
+        self.assertEqual(reopened.retrieve("home", "a", self.events), [])
+        self.assertEqual(reopened.status()["state"], "degraded")
+        self.assertIn("rebuild runtime/memory", reopened.status()["error"])
+
+    def test_dimension_metadata_write_failure_does_not_degrade_retrieval(self):
+        memory = self.memory()
+        self.collection.modify = lambda metadata: (_ for _ in ()).throw(RuntimeError("metadata write failed"))
+        memory.reconcile(self.events)
+        self.assertEqual(memory.status()["state"], "ready")
+        self.assertEqual(memory._dimensions, 2)
+        self.assertTrue(memory.retrieve("home", "a", self.events))
 
     def test_retrieval_is_paraphrase_friendly_and_conversation_scoped(self):
         memory = self.memory()
