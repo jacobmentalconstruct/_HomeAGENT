@@ -3,10 +3,13 @@
 ## Present
 
 Onboarded 2026-10-04. Repository started at `main`, commit `dc623ae`.
-The append-only SQLite event log rebuilds conversation history at startup.
-Short-term context selects the newest messages that fit. Semantic retrieval,
-embedding calls, and a vector index were absent. `docs/WORKFLOW.md` was supplied
-by the USER and is untracked. The architecture check disallows third-party imports.
+The append-only SQLite event log remains authoritative and rebuilds conversation
+history at startup. Short-term context selects the newest messages that fit.
+T1 adds optional local conversation retrieval using Ollama embeddings and a
+persistent Chroma index. The implementation is on `rag-implementation`;
+`main` remains the last accepted state pending the USER's merge decision.
+`docs/WORKFLOW.md` was supplied by the USER and is included on the branch. The
+architecture check disallows third-party imports.
 
 Baseline: Python 3.13.6, `python -B -m unittest discover -s tests` passed
 174 tests in 136.531 seconds. No live model or vector service was involved.
@@ -34,9 +37,9 @@ Hard stops:
 
 ## Current work
 
-T1: local conversation RAG cartridge.
-Approved: T1 (USER, 2026-10-04), including transcript indexing as derived memory.
-Now: implementation and tidy are complete. Paused for USER review before parking.
+T1: local conversation RAG cartridge (parked).
+Approved:
+Now:
 Progress:
 - [x] Add validated optional memory config and separate RAG requirements.
 - [x] Add one Chroma adapter and Ollama embedding call, loaded only when enabled.
@@ -105,6 +108,26 @@ autonomous fact extraction, summaries, knowledge editing or approval UI,
 cross-conversation retrieval, accounts, cloud sync, rerankers, hybrid retrieval,
 live cartridge switching, and unrelated cleanup.
 
+The following retrieval observations remain a watchlist. They are not current
+defects or commitments; use the recorded symptoms to decide whether a later
+tranche is warranted.
+
+- **Bounded query context:** Retrieval currently uses only the raw current user
+  prompt. Short follow-ups such as “and the other one?” may not find the intended
+  turn. Watch for repeatable follow-ups that clearly refer to older material but
+  return no useful source, or return an unrelated source while the subject is in
+  recent conversation. If this occurs, consider combining the prompt with a
+  small bounded amount of recent context.
+- **Relevance filtering:** The configured top-k results have no distance cutoff,
+  so weak matches may enter the prompt. Watch for clearly unrelated excerpts,
+  especially with vague queries and large histories. If this occurs, measure
+  distances for the active embedding model before choosing a calibrated cutoff.
+- **Transient degraded recovery:** An Ollama or Chroma error leaves memory
+  degraded until process restart, while chat continues. Watch for a service
+  recovering while later replies continue to report degraded memory. If this
+  occurs, consider bounded retries or re-probing with explicit latency limits
+  and backoff during sustained outages.
+
 ## Log
 
 - 2026-10-04 onboarding: reviewed workflow, architecture, composition, history,
@@ -118,9 +141,11 @@ live cartridge switching, and unrelated cleanup.
   `qwen2.5:1.5b`, a temporary local conversation dropped three recent-context
   messages, retrieved the older workshop color from Chroma, and answered
   “Violet.” After reopening the app, it retrieved the same sources and answered
-  “The workshop remains violet.” Temporary runtime files were removed.
-- Current state: on `t1-local-rag`; implementation and tidy complete; awaiting
-  USER review before parking or merging. No live process remains.
+  “The workshop remains violet.” The temporary runtime directory for this smoke
+  was removed.
+- Historical state before branch publication: on `t1-local-rag`; implementation
+  and tidy complete; awaiting USER review before parking or merging. No live
+  process remained.
 - 2026-10-04 review repair pass: reconciliation now reads only the active
   conversation's events, and the first successful embedding persists
   `embedding_dimensions` in collection metadata. Focused tests passed; full
@@ -149,12 +174,45 @@ live cartridge switching, and unrelated cleanup.
   ready with dimension 768. After a separate process restart, it recovered the
   stored dimension, returned the same source reference in the actual prompt,
   answered “violet”, and remained ready. Collection configuration stayed
-  cosine. All repair smoke runtime files were removed. The earlier T1 live
-  smoke recorded above predated the review repair pass and did not exercise this
-  first-embedding metadata update; this smoke was run after the fix.
+  cosine. The temporary `smoke-rag-repair-20261004/` runtime and fixture files
+  were removed. The earlier T1 live smoke recorded above predated the review
+  repair pass and did not exercise this first-embedding metadata update; this
+  smoke was run after the fix.
 - 2026-10-04 independent review: `6219ac6` passed read-only review with no code
   defects found. `python -B -m unittest tests.test_memory` passed 10 tests;
   full-suite evidence remains the 192-test run above. `git status` is clean,
-  `HEAD` matches `origin/rag-implementation`, and
-  `git diff --check origin/main...HEAD` is clean. T1 remains unparked pending
-  USER review and acceptance; no merge has been made.
+  `HEAD` at that review point was `6219ac6` on `origin/rag-implementation`, and
+  `git diff --check origin/main...HEAD` was clean. At that review point T1
+  remained unparked pending USER review and acceptance; no merge had been made.
+- 2026-10-04 close-out: `40b7ef7` is the final reviewed T1 head and adds only a
+  `PLAN.md` clarification of the completed review and current status on top of
+  `6219ac6`; it changes no source or tests. The authoritative review/merge
+  candidate is `rag-implementation`, tracking `origin/rag-implementation`.
+  `t1-local-rag` is the historical local branch
+  at `d3f58b3` and is not the candidate branch. The untracked
+  `.tmp_chroma_modify_probe/` directory was a disposable Chroma reproduction
+  index (one empty `probe` collection, zero embedding rows); it was removed
+  after review. Smoke cleanup entries above refer to the temporary smoke runtime
+  and its fixture files.
+- 2026-10-04 parked T1, local conversation RAG cartridge. Outcome: the optional
+  cartridge provides persistent same-conversation semantic recall from older
+  completed transcript turns, includes source references in the actual prompt,
+  survives a process restart, and leaves chat usable when detached or degraded.
+  Scope and non-goals held; T1 is parked on `rag-implementation` and has not
+  been merged.
+  Evidence: `python -B -m unittest tests.test_memory tests.test_status tests.test_window tests.test_conversation`
+  passed 52 tests in 16.714 seconds; `python -B -m unittest discover -s tests`
+  passed 192 tests in 139.302 seconds. After the Chroma fix, a fresh runtime
+  smoke harness ran `python -B smoke_rag_repair.py first` and then
+  `python -B smoke_rag_repair.py reopen` in a separate process with Chroma 1.3.5,
+  Ollama `nomic-embed-text`, and `qwen2.5:1.5b`. Both runs recalled “violet” with
+  the same source reference in the actual model prompt; memory stayed ready and
+  retained dimension 768, with cosine distance unchanged. The temporary harness
+  and runtime were removed. `git diff --check`, the 10-test memory review run,
+  and the independent review were clean. Limitations: retrieval remains local,
+  conversation-scoped, and based on the raw prompt; quality depends on embeddings
+  and top-k, and memory does not auto-recover from transient failure before
+  restart. Deferrals: bounded query context, relevance filtering, and transient
+  degraded recovery are recorded in Backlog above, alongside the existing v1
+  exclusions. Next provisional step: the USER decides whether to merge
+  `rag-implementation` into `main`; no merge was performed.
