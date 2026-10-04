@@ -76,4 +76,3 @@ There is no separate journal. The record is kept in three places, and nothing el
 | Decisions, deferrals, scope changes | `PLAN.md` Decisions and Backlog. |
 | Branches | Each tranche is built on its own branch, `t<n>-<slug>` (e.g. `t0-skeleton`), and merged into `main` only after the user accepts the park. `main` always holds the last accepted state. |
 | Proof over vibes | The command and its output summary go in the parked entry. The commit that parks a tranche is named `T<n>: <outcome>`, so `git log --oneline` reads as the tranche history. |
-| User-approved writes | The user approves the tranche (step 6). Inside the product, every change an agent proposes to durable memory goes through the approve queue. |
