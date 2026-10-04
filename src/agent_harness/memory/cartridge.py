@@ -30,10 +30,12 @@ class ConversationMemory:
             self._state = "disabled"
             return
         try:
+            settings = None
             if client_factory is None:
                 chromadb = importlib.import_module("chromadb")
                 client_factory = chromadb.PersistentClient
-            client = client_factory(path=str(path))
+                settings = chromadb.config.Settings(anonymized_telemetry=False)
+            client = client_factory(path=str(path), settings=settings)
             self._collection = client.get_or_create_collection(
                 name=COLLECTION,
                 metadata={"schema": SCHEMA, "embedding_identity": identity, "hnsw:space": "cosine"})

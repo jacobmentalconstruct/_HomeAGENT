@@ -1,5 +1,7 @@
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from tests import support  # noqa: F401
 from agent_harness.memory.cartridge import ConversationMemory
@@ -65,7 +67,7 @@ def event(seq, kind, conv, generation, text=""):
 class MemoryTests(unittest.TestCase):
     def setUp(self):
         self.collection = Collection()
-        self.factory = lambda path: Client(self.collection)
+        self.factory = lambda path, settings=None: Client(self.collection)
         self.events = [
             event(1, "turn.user", "a", "g1", "Where is my home?"),
             event(2, "turn.assistant", "a", "g1", "Your home is in Cedar Rapids."),
@@ -77,6 +79,25 @@ class MemoryTests(unittest.TestCase):
     def memory(self, identity="ollama:nomic-embed-text", embedder=embed):
         return ConversationMemory(enabled=True, path=Path("unused"), identity=identity,
                                   top_k=4, embed=embedder, client_factory=self.factory)
+
+    def test_chroma_client_disables_telemetry(self):
+        received = {}
+
+        def settings(*, anonymized_telemetry):
+            received["telemetry"] = anonymized_telemetry
+            return object()
+
+        def client(*, path, settings):
+            received["settings"] = settings
+            return Client(self.collection)
+
+        chroma = SimpleNamespace(config=SimpleNamespace(Settings=settings), PersistentClient=client)
+        with patch("agent_harness.memory.cartridge.importlib.import_module", return_value=chroma):
+            memory = ConversationMemory(enabled=True, path=Path("unused"),
+                                        identity="ollama:nomic-embed-text", top_k=4, embed=embed)
+        self.assertEqual(memory.status()["state"], "ready")
+        self.assertIs(received["telemetry"], False)
+        self.assertIsNotNone(received["settings"])
 
     def test_reconcile_indexes_only_completed_turns_and_is_idempotent(self):
         memory = self.memory()

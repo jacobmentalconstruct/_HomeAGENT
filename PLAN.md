@@ -37,10 +37,33 @@ Hard stops:
 
 ## Current work
 
-T1: local conversation RAG cartridge (parked).
-Approved:
-Now:
+T2: public-release polish (active).
+Approved: T2 (USER, 2026-10-04).
+Now: Verify public documentation and complete the full suite.
 Progress:
+- [x] Disable Chroma telemetry at client creation and test the setting.
+- [ ] Repair architecture, configuration, security, and README documentation.
+- [ ] Run focused and full tests, inspect the diff, and park T2.
+
+Expected outcome: the optional conversation memory cartridge disables Chroma
+telemetry, and public documentation accurately describes its dependency, data,
+configuration, and limits.
+
+Scope: the Chroma client setting and its focused test; the specified architecture,
+configuration, security, and README edits; verification and a parking record.
+
+Non-goals: retrieval changes, watchlist work, new memory adapters, and merge.
+
+Acceptance: `python -B -m unittest tests.test_memory` and
+`python -B -m unittest discover -s tests` pass; `git diff --check` is clean;
+no document claims unqualified standard-library-only operation; the final diff
+contains only T2 work.
+
+Known risk: Chroma is optional in test environments, so its settings assertion
+must use a fake module rather than requiring the package.
+
+Previous parked work: T1 local conversation RAG cartridge.
+T1 progress:
 - [x] Add validated optional memory config and separate RAG requirements.
 - [x] Add one Chroma adapter and Ollama embedding call, loaded only when enabled.
 - [x] Reconcile the derived index from events and recover missing entries.
