@@ -79,7 +79,9 @@ class OllamaBackend(Backend):
         if options and "temperature" in options:
             sent["temperature"] = options["temperature"]
         # Thinking is off unless asked for: replies start sooner without it.
-        payload = {"model": model, "messages": messages, "stream": True, "options": sent,
+        # Prompt budgeting and fallback belong to the harness; don't let the
+        # backend silently discard the beginning of an oversized request.
+        payload = {"model": model, "messages": messages, "stream": True, "truncate": False, "options": sent,
                    "think": bool((options or {}).get("think", False)), "keep_alive": self.keep_alive}
         return ChatStream(self._events(payload))
 

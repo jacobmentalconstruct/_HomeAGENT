@@ -140,6 +140,19 @@ class RunnerWindowTests(Base):
         assistant = [e for e in self.store.read(conversation_id=conv) if e.kind == "turn.assistant"][-1]
         self.assertEqual(assistant.payload["window"], window_record)
 
+    def test_near_limit_chat_is_sent_unchanged_with_ollama_truncation_disabled(self):
+        content = "bounded near-limit request " * 75
+        fake, runner = self.runner_for(ollama_reply(["ok"]))
+        conv = self.conversations.create()
+        gen = runner.send(conv, content, MODEL)
+        self.assertEqual(outcome(*watch(gen))["type"], "done")
+
+        sent = fake.requests[0]["body"]
+        self.assertIs(sent["truncate"], False)
+        self.assertEqual(sent["messages"], [msg(content)])
+        window_record = gen.snapshot()["window"]
+        self.assertGreater(window_record["estimated_tokens"], window_record["budget"] * 0.95)
+
     def test_the_running_message_and_snapshot_carry_the_window(self):
         release = threading.Event()
         fake, runner = self.runner_for([("hold", release)] + ollama_reply(["ok"]))

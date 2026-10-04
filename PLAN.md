@@ -10,13 +10,14 @@ not the active roadmap.
 
 ### Current state
 
-This is a Git checkout on branch `RAG-SUM-GRAPH`, based at `dfcc9f1` and tracking
-`origin/RAG-SUM-GRAPH` at the start of this tranche. Earlier inspection occurred
-before Git metadata was attached; the prior no-Git statements record that
-initial observation and are now superseded. Historical RAG branch names, commit
-IDs, and merge status below describe the source project. No source code has been
-changed for context scaling yet. Existing harness behavior and the focused
-context/memory/architecture baseline were reviewed; 38 tests passed with
+This is a Git checkout on branch `t1-bounded-overflow-extraction`, created from
+T0 commit `fae95c1` on `RAG-SUM-GRAPH`; the T0 commit was pushed to
+`origin/RAG-SUM-GRAPH`. Earlier inspection occurred before Git metadata was
+attached; the prior no-Git statements record that initial observation and are
+now superseded. Historical RAG branch names, commit IDs, and merge status below
+describe the source project. T1 implementation has started on this branch.
+Existing harness behavior and the focused context/memory/architecture baseline
+were reviewed; 38 tests passed with
 `python -B -m unittest tests.test_architecture tests.test_memory tests.test_window -q`
 on 2026-10-04. The full current suite has not yet been rerun in this snapshot.
 
@@ -151,8 +152,8 @@ T0 verification and close-out (2026-10-04):
   `docs/CONFIGURATION.md`, `docs/CONTEXT-OVERFLOW-FALLBACK-ARCHITECTURE.md`,
   `docs/PROJECT-CHARTER.md`, and `docs/WORKFLOW.md`. No source, tests, or
   runtime data changed.
-- Next: commit this documentation checkpoint as `T0 wip: align context scaling
-  plan`, then create `t1-bounded-overflow-extraction` from that commit.
+- T0 checkpoint: commit `fae95c1` (`T0 wip: align context scaling plan`) was
+  pushed to `origin/RAG-SUM-GRAPH` before T1 began.
 
 ### T1 bounded overflow extraction
 
@@ -247,12 +248,25 @@ Fixture constants: `num_ctx=2048`, `max_reply_tokens=256`,
 settings. The ordinary near-limit fixture is sized below
 `budget_tokens(2048, 256)` and must be accepted unchanged.
 
-Now: after the T0 documentation commit, create `t1-bounded-overflow-extraction`
-and implement the first acceptance item only.
+Now: implement the first acceptance item only on the T1 branch created from T0.
 Progress:
-- [ ] Implement and test Ollama truncate control and near-limit regression.
+- [x] Implement and test Ollama truncate control and near-limit regression.
 - [ ] Implement bounded extraction, shared queue/deadline, and progress stream.
 - [ ] Implement provenance window record and API behavior.
+
+T1 task 1 evidence (2026-10-04): `OllamaBackend.chat` now sends top-level
+`truncate=false`. A request-shape test asserts that field; a near-budget runner
+test proves a normal message is sent byte-for-byte unchanged and completes with
+truncation disabled. `python -B -m unittest tests.test_models.RequestTests
+tests.test_window.RunnerWindowTests.test_near_limit_chat_is_sent_unchanged_with_ollama_truncation_disabled
+-q` passed (6 tests). The sandbox denied temporary SQLite creation on the first
+run; the same command passed with test-process temporary-file access. The config
+guide documents the behavior. No real-model call was needed for this bounded
+request behavior check; the integrated local-model scenario remains in T1's
+later acceptance work.
+
+Now: commit task 1 on `t1-bounded-overflow-extraction` as
+`T1 wip: disable Ollama server truncation`, then continue with bounded extraction.
 - [ ] Add the three deterministic fixtures and verify all acceptance items.
 - [ ] Run local 0.5B scenario, full suite, review, and park with evidence.
 

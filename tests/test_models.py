@@ -178,6 +178,7 @@ class RequestTests(Fakes):
         sent = fake.requests[0]
         self.assertEqual((sent["path"], sent["body"]["model"], sent["body"]["messages"], sent["body"]["stream"]),
                          ("/api/chat", "m:1", MESSAGES, True))
+        self.assertIs(sent["body"]["truncate"], False)
         self.assertEqual(sent["body"]["options"], {"num_ctx": 4096, "num_predict": 256})
 
     def test_llamacpp_request_has_no_num_ctx_and_asks_for_usage(self):
