@@ -287,7 +287,8 @@ def make_server(app: App, host: str, port: int, max_handlers: int = 64, log=None
             self._json(200, {"uptime_seconds": int(time.time() - started),
                              "replies_in_progress": app.runner.active_count(),
                              "conversations": app.conversations.count(),
-                             "default_model": app.models.default, "loaded": app.models.loaded()})
+                             "default_model": app.models.default, "loaded": app.models.loaded(),
+                             "memory": app.memory.status()})
 
         def _route_default_set(self):
             """Set the model new devices start with. It is saved in the config, so it survives a restart."""

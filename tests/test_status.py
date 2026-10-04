@@ -54,6 +54,7 @@ class StatusRouteTests(Base):
         self.assertEqual((status["replies_in_progress"], status["conversations"], status["default_model"]),
                          (0, 0, "ol:fake:1b"))
         self.assertEqual(status["loaded"], {"ol": [{"name": "fake:1b", "size": 5_000_000_000}]})
+        self.assertEqual(status["memory"], {"enabled": False, "state": "disabled", "indexed": 0, "error": ""})
         self.assertGreaterEqual(status["uptime_seconds"], 0)
 
     def test_status_counts_replies_in_progress_and_conversations(self):

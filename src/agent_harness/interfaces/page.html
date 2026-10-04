@@ -110,10 +110,15 @@ function showWindow(w) {
   document.querySelectorAll("#log .marker").forEach((e) => e.remove());
   const meter = $("meter");
   if (!w) { meter.style.display = "none"; return; }
+  if (w.memory && w.memory.state === "degraded") {
+    $("banner").textContent = "Conversation memory unavailable: " + w.memory.error;
+    $("banner").style.display = "block";
+  }
   const pct = Math.min(100, Math.round(100 * w.estimated_tokens / w.budget));
   meter.textContent = "";
   meter.appendChild(el("div", "", "Context: about " + w.estimated_tokens + " of " + w.budget + " tokens"
     + (w.dropped ? " - " + w.dropped + " earlier message" + (w.dropped === 1 ? "" : "s") + " not sent" : "")));
+  if (w.sources && w.sources.length) meter.appendChild(el("div", "", "Retrieved from: " + w.sources.map((s) => s.id).join(", ")));
   const bar = el("div", "bar"); const fill = el("span"); fill.style.width = pct + "%"; bar.appendChild(fill); meter.appendChild(bar);
   meter.style.display = "block";
   if (w.dropped > 0) {
@@ -126,6 +131,7 @@ function scroll() { const log = $("log"); log.scrollTop = log.scrollHeight; }
 
 async function loadModels() {
   const data = await (await api("/api/models")).json();
+  const status = await (await api("/api/status")).json();
   const select = $("model"); select.textContent = "";
   const down = [];
   for (const m of data.models) {
@@ -136,6 +142,8 @@ async function loadModels() {
   }
   const want = [store.get("harness_model"), data.default].find((c) => c && [...select.options].some((o) => o.value === c));
   if (want) select.value = want;
+  if (status.memory && status.memory.state === "degraded")
+    down.push("conversation memory unavailable: " + status.memory.error);
   $("banner").style.display = down.length ? "block" : "none";
   $("banner").textContent = down.length ? "Unavailable: " + down.join(", ") : "";
   $("send").disabled = !select.options.length;
