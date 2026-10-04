@@ -127,10 +127,9 @@ live cartridge switching, and unrelated cleanup.
   verification and independent review remain before parking.
 - 2026-10-04 repair verification: `python -B -m unittest discover -s tests`
   passed 190 tests in 141.155 seconds; `git diff --check` reported no
-  whitespace errors. Read-only review found no concrete defect. A delegated
-  second review was attempted but could not run because the approval service
-  reported the account usage limit. Git commit is also pending because the
-  protected `.git` index requires the same unavailable approval path.
+  whitespace errors. At that point a delegated second review and Git commit
+  were waiting because the approval service reported the account usage limit;
+  this was resolved in the later review repair below.
 - 2026-10-04 review repair: review identified that Chroma 1.3.5 rejects
   `Collection.modify()` when copied metadata includes `hnsw:space`. Reproduced
   the rejection against real Chroma with a disposable index. The cartridge now
@@ -153,3 +152,9 @@ live cartridge switching, and unrelated cleanup.
   cosine. All repair smoke runtime files were removed. The earlier T1 live
   smoke recorded above predated the review repair pass and did not exercise this
   first-embedding metadata update; this smoke was run after the fix.
+- 2026-10-04 independent review: `6219ac6` passed read-only review with no code
+  defects found. `python -B -m unittest tests.test_memory` passed 10 tests;
+  full-suite evidence remains the 192-test run above. `git status` is clean,
+  `HEAD` matches `origin/rag-implementation`, and
+  `git diff --check origin/main...HEAD` is clean. T1 remains unparked pending
+  USER review and acceptance; no merge has been made.
