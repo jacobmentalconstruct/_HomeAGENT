@@ -1,0 +1,21 @@
+# Local data: the access token and every conversation. Never publish these.
+runtime/
+
+# Python
+__pycache__/
+*.pyc
+
+# Anything that could hold a secret
+*.sqlite3
+*.sqlite3-journal
+.env
+.env.*
+*.log
+*.pem
+*.key
+
+# Editors and virtual environments
+.venv/
+.idea/
+.vscode/
+.DS_Store
