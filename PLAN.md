@@ -8,6 +8,8 @@ history at startup. Short-term context selects the newest messages that fit.
 T1 adds optional local conversation retrieval using Ollama embeddings and a
 persistent Chroma index. The implementation is on `rag-implementation`;
 `main` remains the last accepted state pending the USER's merge decision.
+T2 disables Chroma telemetry for the optional cartridge and aligns public
+documentation with its dependency, storage, configuration, and reporting route.
 `docs/WORKFLOW.md` was supplied by the USER and is included on the branch. The
 architecture check disallows third-party imports.
 
@@ -37,13 +39,13 @@ Hard stops:
 
 ## Current work
 
-T2: public-release polish (active).
-Approved: T2 (USER, 2026-10-04).
-Now: Verify public documentation and complete the full suite.
+T2: public-release polish (parked).
+Approved:
+Now:
 Progress:
 - [x] Disable Chroma telemetry at client creation and test the setting.
 - [x] Repair architecture, configuration, security, and README documentation.
-- [ ] Run focused and full tests, inspect the diff, and park T2.
+- [x] Run focused and full tests, inspect the diff, and park T2.
 
 Expected outcome: the optional conversation memory cartridge disables Chroma
 telemetry, and public documentation accurately describes its dependency, data,
@@ -239,3 +241,21 @@ tranche is warranted.
   degraded recovery are recorded in Backlog above, alongside the existing v1
   exclusions. Next provisional step: the USER decides whether to merge
   `rag-implementation` into `main`; no merge was performed.
+- 2026-10-04 parked T2, public-release polish. Outcome: Chroma client creation
+  explicitly disables anonymized telemetry, and the public architecture,
+  configuration, security, and README docs describe the conversation memory
+  cartridge consistently. GitHub private vulnerability reporting was disabled;
+  `gh api --method PUT repos/jacobmentalconstruct/_HomeAGENT/private-vulnerability-reporting`
+  enabled it, and a follow-up GET returned `{"enabled":true}`.
+  Evidence: `python -B -m unittest tests.test_memory` passed 11 tests in 0.002
+  seconds; `python -B -m unittest discover -s tests` passed 193 tests in
+  139.102 seconds. `git diff --check origin/rag-implementation...HEAD` was
+  clean, and a documentation search found only the qualified claim that
+  ordinary chat uses the standard library. The reviewed diff contains only
+  `PLAN.md`, `README.md`, `docs/ARCHITECTURE.md`, `docs/CONFIGURATION.md`,
+  `docs/SECURITY.md`, `src/agent_harness/memory/cartridge.py`, and
+  `tests/test_memory.py`. Limitations: the telemetry setting is asserted with
+  a fake Chroma module; no real-Chroma smoke was required for T2. Deferrals:
+  the three memory watchlist items and the v1 exclusions in Backlog are
+  unchanged. Next provisional step: the USER reviews T2 and decides whether
+  to merge `rag-implementation` into `main`; no merge was performed.
