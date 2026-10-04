@@ -10,15 +10,23 @@ not the active roadmap.
 
 ### Current state
 
-This directory is a sandboxed file snapshot, not an active Git checkout. The
-historical branch names, commit IDs, and merge status below describe the source
-project at capture time and cannot be checked against Git here. No source code
-has been changed for context scaling yet. Existing harness behavior and the
-focused context/memory/architecture baseline were reviewed; 38 tests passed with
+This is a Git checkout on branch `RAG-SUM-GRAPH`, based at `dfcc9f1` and tracking
+`origin/RAG-SUM-GRAPH` at the start of this tranche. Earlier inspection occurred
+before Git metadata was attached; the prior no-Git statements record that
+initial observation and are now superseded. Historical RAG branch names, commit
+IDs, and merge status below describe the source project. No source code has been
+changed for context scaling yet. Existing harness behavior and the focused
+context/memory/architecture baseline were reviewed; 38 tests passed with
 `python -B -m unittest tests.test_architecture tests.test_memory tests.test_window -q`
 on 2026-10-04. The full current suite has not yet been rerun in this snapshot.
 
-### Last tranche: T0 project re-baseline (parked)
+The local overflow probe is recorded in `docs/PROJECT-CHARTER.md`: on Ollama
+0.18.3 with `qwen2.5:0.5b` and `num_ctx=2048`, default truncation accepted the
+oversized request with HTTP 200 and `prompt_eval_count=2048`; `truncate=false`
+produced HTTP 400, `the input length exceeds the context length`. This evidence
+applies to that local configuration only.
+
+### Previous tranche: T0 project re-baseline (parked)
 
 Approved: T0 (USER, 2026-10-04)
 
@@ -32,7 +40,7 @@ Scope:
 1. Add a project charter that defines desired prototype state, invariants,
    stop conditions, current constraints, and deferred directions.
 2. Update the active plan and workflow to support explicit, crash-resumable
-   checkpoints in this sandbox snapshot.
+   checkpoints.
 3. Align README and architecture overview with the new direction while keeping
    claims about implemented behavior accurate.
 4. Record this baseline, evidence, and next step here without changing runtime
@@ -40,7 +48,7 @@ Scope:
 
 Non-goals: implement overflow fallback; alter tests or source code; remove old
 project history; add summary, graph, extraction, routing, or storage features;
-initialize Git or publish/merge anything.
+publish or merge anything.
 
 Acceptance:
 
@@ -50,19 +58,17 @@ Acceptance:
   historical without erasing its evidence.
 - README and architecture descriptions distinguish implemented behavior from
   intended behavior.
-- Workflow explains recovery from this no-Git snapshot and records explicit
-  tranche state and verification evidence.
-- `git` is not required as acceptance evidence while `.git` is absent; changed
-  documentation is inspected for consistency and the recorded test result is
-  not misrepresented as a full-suite run.
+- Workflow explains tranche approval and records explicit state and verification
+  evidence.
+- The T0 documentation commit is present before T1 work begins; changed docs are
+  inspected and test evidence is represented accurately.
 
-Known risk: the paper does not yet define a concrete answer-preservation fixture
-or whether backend-reported overflow should trigger compression. Those decisions
-belong in the first implementation tranche after mapping the actual failure
-path.
+The original T0 environment observation that Git metadata was absent was
+superseded when this managed checkout appeared. The current Git state is above.
 
-Now: T0 is parked. Next, map the real prompt overflow paths and declare the
-smallest implementation proof with a fixed answer-preservation fixture.
+Now: complete the approved T0 documentation update and commit it. T1 is approved
+with the amended criteria below and starts from its own tranche branch after
+that commit.
 Progress:
 - [x] Add charter and recovery-oriented plan/workflow.
 - [x] Align README and architecture overview.
@@ -78,8 +84,8 @@ T0 verification and close-out (2026-10-04):
 - Preserved all prior RAG plan and log text below as historical reference.
 - `rg -n "deliberately nothing more|Target: _RAG_v1.0|no tools|no automatic cross-conversation|T1|T2|Git checkout|context scaling|context-overflow" README.md PLAN.md docs` confirmed former scope claims are in the labeled historical plan or legacy notes; current README and charter state the new direction.
 - Manual readback of the charter, active plan, README, architecture, and workflow found the active/implemented distinction consistent. No code or runtime data changed. No tests were run after these documentation-only edits; the previously recorded 38-test focused baseline predates T0 and is not a full-suite result.
-- Limitation: this copy has no `.git` metadata, so no diff, commit, or branch evidence is available here.
-- Next: inspect context-window and backend overflow behavior; then define one fixture and one fallback route in T1 acceptance criteria before touching runtime code.
+- Historical limitation at initial inspection: Git metadata was not visible then. The managed checkout is now available; its branch and base commit are recorded above.
+- Next: commit the approved documentation update as `T0 wip: align context scaling plan`, then start T1 on `t1-bounded-overflow-extraction`.
 
 ## Log
 
@@ -89,19 +95,191 @@ T0 verification and close-out (2026-10-04):
   `docs/MEMORY_WATCHLIST.md`, and `docs/CONTEXT-OVERFLOW-FALLBACK-ARCHITECTURE.md`.
   Prior RAG planning and verification history remains below, labeled historical.
   Evidence and limitation are recorded under T0 verification and close-out
-  above. No source, tests, or runtime data changed. Next step is T1 overflow
-  path mapping and a narrowly scoped proof declaration. Exact resume point:
-  inspect `conversation/window.py`, `conversation/generation.py`, and backend
-  adapters for preflight and reported context overflow; capture a fixed fixture
-  showing the current failure and desired preserved facts.
+  above. No source, tests, or runtime data changed in the initial T0 baseline.
+  Follow-up doc alignment is currently approved and will be committed as a T0
+  work-in-progress checkpoint before T1 starts.
 
-### Historical plan: previous _RAG_v1.0 development
+## Current work: T0 documentation alignment
+
+Approved: T0 (USER, 2026-10-04)
+
+Expected outcome: record the amended, approved T1 proof and operator/API
+semantics in the project docs, clarify the active Git workflow, and preserve
+the previous RAG plan as clearly historical material. Commit these docs before
+beginning T1.
+
+Scope:
+
+1. Update T1 scope and acceptance criteria with normal near-limit behavior,
+   queue/deadline/chunk/progress limits, named fixture parameters, second and
+   negative fixtures, and API window metadata.
+2. Move T1 parameters and Ollama probe evidence out of the charter and into the
+   active T1 declaration.
+3. Update `API.md`, configuration docs, README, workflow, and overflow concept
+   paper; remove its obsolete builder instructions and unbounded self-loop.
+4. Correct the stale Git state and demote headings in the preserved RAG plan.
+5. Review doc consistency, then commit only in-scope documentation as `T0 wip:`.
+
+Non-goals: source/test changes, starting T1 implementation before the T0 commit,
+altering runtime user data, deleting historical RAG evidence, or publishing.
+
+Acceptance:
+
+- All USER-requested T1 additions below appear in the declaration and relevant
+  API/config docs.
+- The charter contains product purpose and general invariants, not T1 parameters.
+- The overflow concept paper no longer contains the obsolete Builder
+  Instructions or a self-referential flow edge.
+- `WORKFLOW.md` restores the original approval-before-implementation steps.
+- README links the charter; `PLAN.md` records the active Git state and marks the
+  old RAG plan as historical by its heading hierarchy.
+- The T0 documentation commit exists before any T1 implementation commit.
+
+Progress:
+- [x] Update charter, plan, overflow paper, workflow, README, API and config docs.
+- [x] Inspect resulting docs and commit the T0 checkpoint.
+
+T0 verification and close-out (2026-10-04):
+
+- Read back the active charter, plan, workflow, README, API, configuration,
+  and overflow concept paper. T1 acceptance language is consistent; prior RAG
+  content remains under demoted historical headings.
+- `git diff --check` passed. No tests were run because this checkpoint changes
+  documentation only; the earlier 38-test focused baseline predates this
+  checkpoint.
+- Changed files: `PLAN.md`, `README.md`, `docs/API.md`,
+  `docs/CONFIGURATION.md`, `docs/CONTEXT-OVERFLOW-FALLBACK-ARCHITECTURE.md`,
+  `docs/PROJECT-CHARTER.md`, and `docs/WORKFLOW.md`. No source, tests, or
+  runtime data changed.
+- Next: commit this documentation checkpoint as `T0 wip: align context scaling
+  plan`, then create `t1-bounded-overflow-extraction` from that commit.
+
+### T1 bounded overflow extraction
+
+Approved: T1 (USER, 2026-10-04; amended acceptance)
+
+Status: approved; starts after the T0 documentation checkpoint.
+
+Expected outcome: when one oversized user message contains a document payload
+followed by an explicit `Question:` section, the harness preserves the question
+verbatim, replaces only a bounded portion of the payload with question-focused
+source sentences, and answers a fixed fact question within the configured
+context. The reply window record shows the derived representation and its source
+provenance. Other chat behavior and the original event history remain usable.
+
+Scope:
+
+1. Define and parse the T1 input shape: document payload followed by an explicit
+   final `Question:` section. Preserve that question exactly; malformed or
+   unsupported oversized messages fail visibly.
+2. Keep preflight as the primary trigger at `ContextTooLarge`. Configure the
+   Ollama chat request not to truncate server-side; recognize its specific
+   context-overflow response as one reactive fallback trigger. Permit only one
+   fallback attempt for a generation.
+3. Reserve 10% of the prompt budget each for verbatim payload text from the
+   beginning and end, ending at sentence boundaries. Split the middle into
+   context-fitting chunks, ask the selected local model at
+   temperature zero to copy only relevant source sentences, then combine those
+   sentences. Mechanically validate every candidate as a verbatim source
+   sentence (allowing whitespace normalization only); discard unsupported text
+   and fail visibly if no valid extraction remains. If needed, combine once
+   more; stop at depth two.
+4. Keep extraction inside the existing per-model queue ticket and within one
+   generation-wide total timeout, including extraction and final answer but
+   excluding queue wait. Cap source chunks at 8; emit progress for completed
+   extraction work through the existing generation stream.
+5. Fail with `context_exceeded` if the derived prompt still cannot fit or the
+   fallback cannot complete. Do not loop or stream a partial first attempt as
+   though it were the final answer.
+6. Add `window.derived` metadata to the assistant event: method, version,
+   transformed text, source event IDs, character ranges, and a source hash. Add
+   no Chroma documents, event kinds, or SQLite table in T1.
+7. Add deterministic fake-backend tests and one local `qwen2.5:0.5b` smoke using
+   the same fixture; document actual result, limits, and recovery.
+
+Non-goals: general instruction/payload inference; arbitrary file/document
+formats; multiple transformation types; cache table; graph or state tracking;
+larger-context model routing; multiple fallback models; summary trees or depth
+greater than two; Chroma changes; UI redesign; unrelated refactoring.
+
+Acceptance:
+
+- A fixed document fixture with three planted facts and a final explicit
+  `Question:` exceeds a 2048-token prompt budget with no ordinary history; the
+  fixture sets `max_reply_tokens=256` and a named `CHUNK_SIZE_FRACTION=0.40`;
+  the ordinary `choose_window` path raises `ContextTooLarge`.
+- The deterministic fallback result includes the verbatim question and all
+  three required facts, fits the budget, and excludes enough filler to fit.
+- No model-generated extraction text is accepted unless it matches source text;
+  temperature zero alone is not treated as a correctness guarantee.
+- Tests prove a non-overflowing request bypasses fallback, extraction depth
+  never exceeds two, source event IDs/ranges/hash and derived text are recorded,
+  and a failed fallback leaves transcript history intact and a later ordinary
+  message usable.
+- An ordinary near-limit conversation within the app's prompt budget succeeds
+  with Ollama `truncate=false`; tests show bounded requests are not changed.
+  Configuration documentation explains that the server no longer silently
+  drops old context and that the harness owns truncation/fallback decisions.
+- Extraction runs under the existing queue ticket and completes, including the
+  final answer, within one `timeouts.total` deadline. No more than 8 source
+  chunks are processed, and the stream emits progress events as chunks finish.
+- A second fixture places a required fact mid-document among distractor
+  sentences; question-focused extraction retains that fact. A negative fixture
+  with no relevant source sentence fails visibly instead of inventing one.
+- A local Ollama request with `truncate=false` rejects the oversized raw fixture
+  with a context error; the integrated fallback then answers the same fact
+  question and records its provenance. Report the actual model answer and
+  `prompt_eval_count`; do not infer semantic success from HTTP success alone.
+- A reported backend context error causes at most one fallback attempt. Other
+  backend errors are not mislabeled as overflow.
+- `docs/API.md` documents `window.derived` and the extraction progress event.
+- Focused tests and the full suite pass; documentation states supported input
+  shape, transformation limits, failure behavior, and that no reuse cache exists.
+
+Known risks: the 0.5B extractor may miss or miscopy relevant sentences despite
+temperature zero; chunk boundaries and character-range mapping need to be
+deterministic; Ollama error shapes can change by version. A single fixture proves
+the mechanism for that shape, not general document understanding.
+
+Fixture constants: `num_ctx=2048`, `max_reply_tokens=256`,
+`CHUNK_SIZE_FRACTION=0.40` (a fraction of `num_ctx` for each source chunk), and
+`MAX_EXTRACTION_CHUNKS=8`. These are T1 fixture/prototype constants, not new user
+settings. The ordinary near-limit fixture is sized below
+`budget_tokens(2048, 256)` and must be accepted unchanged.
+
+Now: after the T0 documentation commit, create `t1-bounded-overflow-extraction`
+and implement the first acceptance item only.
+Progress:
+- [ ] Implement and test Ollama truncate control and near-limit regression.
+- [ ] Implement bounded extraction, shared queue/deadline, and progress stream.
+- [ ] Implement provenance window record and API behavior.
+- [ ] Add the three deterministic fixtures and verify all acceptance items.
+- [ ] Run local 0.5B scenario, full suite, review, and park with evidence.
+
+First task completed before proposal: confirm real Ollama overflow behavior.
+Evidence (Ollama 0.18.3, `qwen2.5:0.5b`, `num_ctx=2048`): with default
+truncation, the oversized fixture returned HTTP 200, `prompt_eval_count=2048`,
+and answer `FACT_END`; with `truncate=false`, the same fixture returned HTTP 400,
+`the input length exceeds the context length`. The charter records this result.
+Review integration (2026-10-04): the charter now protects the user's instruction
+or question verbatim while allowing the payload to be transformed. T1 requires
+an explicit final `Question:` marker so the prototype does not pretend to infer
+arbitrary instruction/payload boundaries. Extraction candidates must be
+mechanically matched to source sentences because temperature zero does not
+guarantee faithful copying. The source-text hash and ranges remain in the
+assistant window record; no cache table is proposed without measured reuse cost.
+No code or tests changed. Approval is pending. Do not implement T1 until the
+The supported test schema, fallback, provenance, and docs changes are USER-
+approved. Exact constants above are in-scope defaults and may be adjusted only
+if fixture evidence shows they prevent the declared proof.
+
+## Historical plan: previous _RAG_v1.0 development
 
 Everything from the former `Present`, `Target: _RAG_v1.0`, `Current work`,
 `Decisions`, `Backlog`, and `Log` sections below is preserved as a record of the
 prior project line. It is useful implementation history, not current authority.
 
-## Present
+### Historical present
 
 Onboarded 2026-10-04. Repository started at `main`, commit `dc623ae`.
 The append-only SQLite event log remains authoritative and rebuilds conversation
@@ -117,7 +295,7 @@ architecture check disallows third-party imports.
 Baseline: Python 3.13.6, `python -B -m unittest discover -s tests` passed
 174 tests in 136.531 seconds. No live model or vector service was involved.
 
-## Target: _RAG_v1.0
+### Historical target: _RAG_v1.0
 
 Resume a persisted conversation and retrieve relevant older turns from that
 conversation through a real persistent vector database. Include retrieved source
@@ -138,7 +316,7 @@ Hard stops:
 - One real local embedding/vector store path is demonstrated; relevant checks
   pass and setup, limits, and recovery are documented.
 
-## Current work
+### Historical current work
 
 T2: public-release polish (parked).
 Approved:
@@ -213,7 +391,7 @@ the RAG target. The remaining retrieval-policy observations are tracked in
 `docs/MEMORY_WATCHLIST.md` and remain provisional until symptoms justify a new
 tranche.
 
-## Decisions
+### Historical decisions
 
 - SQLite event history remains authoritative; the vector index is derived data.
 - Retrieval scope is the resumed conversation only.
@@ -227,7 +405,7 @@ tranche.
 References: [Ollama embedding API](https://ollama.com/blog/embedding-models);
 [Chroma Python client](https://docs.trychroma.com/reference/python).
 
-## Backlog
+### Historical backlog
 
 Deferred beyond v1: Graph RAG, further database adapters, document ingestion,
 autonomous fact extraction, summaries, knowledge editing or approval UI,
@@ -254,7 +432,7 @@ tranche is warranted.
   occurs, consider bounded retries or re-probing with explicit latency limits
   and backoff during sustained outages.
 
-## Log
+### Historical log
 
 - 2026-10-04 onboarding: reviewed workflow, architecture, composition, history,
   context selection, generation, and restart tests. Baseline above.

@@ -4,6 +4,8 @@ Settings live in `runtime/config.json`, created on first run with defaults and a
 
 If a value is invalid, the server refuses to start and says which one. (`keep_alive` is passed to Ollama as written, so Ollama judges it.) The file is written with every setting the first time the program runs, so a later version's new defaults do not change an existing file; delete a key to get its default back.
 
+For Ollama chat requests, T1 disables server-side truncation (`truncate=false`). The harness selects or transforms context within its own budget, so a request that fits the harness budget is sent normally, while an estimator miss becomes a visible overflow error for the bounded fallback. This prevents Ollama from silently dropping prompt content without the harness knowing.
+
 ## Settings
 
 | Key | Default | Meaning |

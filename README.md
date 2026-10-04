@@ -78,6 +78,7 @@ The server uses plain HTTP with one shared token. That is reasonable on a home n
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md): how it is built and why
+- [Project charter](docs/PROJECT-CHARTER.md): context-scaling purpose, invariants, and prototype stop conditions
 - [Configuration](docs/CONFIGURATION.md): every setting
 - [HTTP API](docs/API.md): the endpoints the page and panel use
 - [Security](docs/SECURITY.md): what it protects, and what it does not

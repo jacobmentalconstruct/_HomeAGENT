@@ -21,7 +21,7 @@ A missing or wrong token gets `401`. The page itself (`GET /`) needs no token. R
 | `POST /api/default` | Set the default model: `{"model": "backend:model"}`. Saved in the config. `400` if it is unknown, unavailable or not a chat model. |
 | `GET /api/conversations` | `{"conversations": [{"id", "title", "updated", "turns", "busy"}]}`, newest first. |
 | `POST /api/conversations` | Create one: `201 {"id": "..."}`. |
-| `GET /api/conversations/{id}` | `{"id", "title", "open_generation", "window", "turns": [{"role", "text", "ts", "model", "failed", "truncated"}]}`. `window` describes what the latest reply was sent. |
+| `GET /api/conversations/{id}` | `{"id", "title", "open_generation", "window", "turns": [{"role", "text", "ts", "model", "failed", "truncated"}]}`. `window` describes what the latest reply was sent, including any derived context and its provenance. |
 | `POST /api/conversations/{id}/messages` | Send a message: `{"text": "...", "model": "backend:model"}`. `202 {"generation_id": "..."}`. |
 | `GET /api/generations/{id}/stream` | Follow a reply as it is written (below). |
 | `GET /api/status` | `{"uptime_seconds", "replies_in_progress", "conversations", "default_model", "loaded", "memory"}`; `memory` reports `enabled`, `state` (`disabled`, `ready`, or `degraded`), indexed entry count, and a short error when degraded. |
@@ -43,11 +43,29 @@ After that, one of these per line:
 | `type` | Fields | Meaning |
 |---|---|---|
 | `position` | `position` | Replies ahead of yours on this model. |
-| `running` | `window` | Your turn has come. `window` includes context counts, retrieved `sources`, and memory state (`enabled`, `state`, `indexed`, `error`). Sources list older turns retrieved from this conversation and included in the prompt. |
+| `running` | `window` | Your turn has come. `window` includes context counts, retrieved `sources`, and memory state (`enabled`, `state`, `indexed`, `error`). Sources list older turns retrieved from this conversation and included in the prompt. When overflow extraction is used, `window.derived` contains the method/version, transformed text, and source event IDs with character ranges and hashes. |
+| `progress` | `phase`, `completed`, `total` | Overflow extraction progress while the reply holds its model queue ticket. `completed` counts finished source chunks; `total` is the bounded chunk count. |
 | `delta` | `text` | More of the reply. |
 | `done` | `summary` | The reply is complete: `{"stop_reason": "complete" or "truncated", "prompt_tokens", "reply_tokens"}`. |
 | `failed` | `error` | `{"reason", "message", "partial_text"}`. |
 | `ping` | | Sent every 15 seconds while waiting, to keep the connection alive. |
+
+When T1 overflow extraction is used, `window.derived` has this shape:
+
+```json
+{
+  "method": "extractive_map_reduce",
+  "version": 1,
+  "text": "The source sentences included with the reply...",
+  "sources": [
+    {"event_id": 51, "char_range": [120, 340], "source_sha256": "..."}
+  ]
+}
+```
+
+Character ranges are half-open offsets into the original event text. The source
+event remains authoritative; this field describes derived text included in the
+model prompt.
 
 If the reply was already over when you connected, you get just the snapshot, with `state` set to `done` or `failed`. Disconnecting never stops a reply.
 
