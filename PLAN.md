@@ -213,8 +213,8 @@ tranche is warranted.
   `PLAN.md` clarification of the completed review and current status on top of
   `6219ac6`; it changes no source or tests. The authoritative review/merge
   candidate is `rag-implementation`, tracking `origin/rag-implementation`.
-  `t1-local-rag` is the historical local branch
-  at `d3f58b3` and is not the candidate branch. The untracked
+  `t1-local-rag` was the historical local branch
+  at `d3f58b3` and was not the candidate branch. The untracked
   `.tmp_chroma_modify_probe/` directory was a disposable Chroma reproduction
   index (one empty `probe` collection, zero embedding rows); it was removed
   after review. Smoke cleanup entries above refer to the temporary smoke runtime
@@ -259,3 +259,10 @@ tranche is warranted.
   the three memory watchlist items and the v1 exclusions in Backlog are
   unchanged. Next provisional step: the USER reviews T2 and decides whether
   to merge `rag-implementation` into `main`; no merge was performed.
+- 2026-10-04 T2 documentation follow-up: the USER noted that the conversation
+  memory prose in `docs/CONFIGURATION.md` still used hard-wrapped lines. Its
+  paragraphs were unwrapped to match the rest of that document, without changing
+  the rendered content. The stale, local-only `t1-local-rag` branch at `d3f58b3`
+  was confirmed merged into `rag-implementation` and deleted. This follow-up
+  changes no code or tests; `git diff --check` was clean. The T2 review and merge
+  decision remain with the USER.

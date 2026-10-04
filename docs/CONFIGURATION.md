@@ -23,10 +23,7 @@ If a value is invalid, the server refuses to start and says which one. (`keep_al
 
 ## Conversation memory
 
-Memory is optional and disabled by default. To attach the v1 cartridge, install
-the optional dependency with `python -m pip install -r requirements-rag.txt`,
-pull an Ollama embedding model (for example `ollama pull nomic-embed-text`), then
-set:
+Memory is optional and disabled by default. To attach the v1 cartridge, install the optional dependency with `python -m pip install -r requirements-rag.txt`, pull an Ollama embedding model (for example `ollama pull nomic-embed-text`), then set:
 
 ```json
 "memory": {
@@ -46,20 +43,11 @@ set:
 | `embedding_model` | `"nomic-embed-text"` | Name of the Ollama embedding model to pull and use. |
 | `top_k` | `4` | Number of older matches requested per reply, from 1 to 20. |
 
-Restart the server after changing this setting. The cartridge stores a persistent
-index in `runtime/memory/`; the conversation event log remains authoritative and
-missing entries are indexed from it before retrieval. Retrieval is limited to the
-active conversation. The status endpoint reports whether memory is disabled,
-ready, or degraded. If the embedding model changes, stop the server and remove
-`runtime/memory/` to rebuild vectors with a consistent model. The original
-conversation history remains in `runtime/harness.sqlite3`.
+Restart the server after changing this setting. The cartridge stores a persistent index in `runtime/memory/`; the conversation event log remains authoritative and missing entries are indexed from it before retrieval. Retrieval is limited to the active conversation. The status endpoint reports whether memory is disabled, ready, or degraded. If the embedding model changes, stop the server and remove `runtime/memory/` to rebuild vectors with a consistent model. The original conversation history remains in `runtime/harness.sqlite3`.
 
-If a model is re-pulled or replaced under the same name, the cartridge detects
-the change only when its vector dimensions differ. Rebuild `runtime/memory/`
-manually if the model's embeddings changed without a name or dimension change.
+If a model is re-pulled or replaced under the same name, the cartridge detects the change only when its vector dimensions differ. Rebuild `runtime/memory/` manually if the model's embeddings changed without a name or dimension change.
 
-Indexing adds local embedding work and disk use. Chroma's persistent local client
-is suitable for this prototype; this is not a multi-process or networked store.
+Indexing adds local embedding work and disk use. Chroma's persistent local client is suitable for this prototype; this is not a multi-process or networked store.
 
 ## Backends
 
