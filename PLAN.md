@@ -45,6 +45,8 @@ Progress:
 - [x] Expose memory status and keep failures from breaking chat.
 - [x] Add focused tests and update operator, API, architecture, and README docs.
 - [x] Run full verification, inspect the final diff, and tidy.
+- [x] Repair pass: scope reconciliation to the active conversation and persist embedding dimensions.
+- [x] Record retrieval watchlist for bounded query context, relevance filtering, and transient recovery.
 
 Expected outcome: optional persistent same-conversation retrieval, with the event
 log as authority and normal chat functioning when memory is detached.
@@ -75,6 +77,11 @@ record the missing prerequisites precisely.
 Known risks: Chroma wheel compatibility; embedding resource use alongside chat;
 models replaced under an unchanged name; retrieval quality; first reconciliation
 latency.
+
+Review repair pass: the two inexpensive hygiene items are closed without changing
+the RAG target. The remaining retrieval-policy observations are tracked in
+`docs/MEMORY_WATCHLIST.md` and remain provisional until symptoms justify a new
+tranche.
 
 ## Decisions
 
@@ -113,3 +120,13 @@ live cartridge switching, and unrelated cleanup.
   “The workshop remains violet.” Temporary runtime files were removed.
 - Current state: on `t1-local-rag`; implementation and tidy complete; awaiting
   USER review before parking or merging. No live process remains.
+- 2026-10-04 review repair pass: reconciliation now reads only the active
+  conversation's events, and the first successful embedding persists
+  `embedding_dimensions` in collection metadata. Focused tests passed; full
+  verification and independent review remain before parking.
+- 2026-10-04 repair verification: `python -B -m unittest discover -s tests`
+  passed 190 tests in 141.155 seconds; `git diff --check` reported no
+  whitespace errors. Read-only review found no concrete defect. A delegated
+  second review was attempted but could not run because the approval service
+  reported the account usage limit. Git commit is also pending because the
+  protected `.git` index requires the same unavailable approval path.

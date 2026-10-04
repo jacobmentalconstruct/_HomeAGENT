@@ -96,6 +96,9 @@ class ConversationMemory:
                         raise ValueError("Embedding dimensions changed; rebuild runtime/memory.")
                     if self._dimensions is None:
                         self._dimensions = dimensions
+                        metadata = dict(self._collection.metadata or {})
+                        metadata["embedding_dimensions"] = dimensions
+                        self._collection.modify(metadata=metadata)
                     ids = [f"event-{e.seq}" for e in batch]
                     self._collection.upsert(
                         ids=ids, embeddings=vectors, documents=documents,

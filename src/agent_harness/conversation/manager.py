@@ -106,9 +106,9 @@ class ConversationManager:
         with self._lock:
             return list(self._samples)
 
-    def event_history(self) -> list[Event]:
+    def event_history(self, conversation_id: str | None = None) -> list[Event]:
         """A snapshot of source events for reconciling derived stores."""
-        return self._events.read()
+        return self._events.read(conversation_id=conversation_id)
 
     # -- commands -----------------------------------------------------------
 

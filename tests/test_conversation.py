@@ -66,6 +66,13 @@ class Base(unittest.TestCase):
 
 
 class ReplyTests(Base):
+    def test_event_history_can_be_scoped_to_one_conversation(self):
+        first, second = self.conversations.create(), self.conversations.create()
+        self.conversations.begin_turn(first, "g1", "one", "ol:fake:1b", "")
+        self.conversations.begin_turn(second, "g2", "two", "ol:fake:1b", "")
+        self.assertTrue(self.conversations.event_history())
+        self.assertEqual({event.conversation_id for event in self.conversations.event_history(first)}, {first})
+
     def test_reply_streams_is_stored_once_and_survives_a_restart(self):
         _fake, runner = self.runner(ollama_reply(CHUNKS))
         conv = self.conversations.create("phone")

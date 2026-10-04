@@ -165,7 +165,7 @@ class GenerationRunner:
             turnstile.wait_turn(ticket, lambda ahead: gen.publish({"type": "position", "position": ahead}))
             try:
                 retrieved = (self.memory.retrieve(gen.prompt, gen.conversation_id,
-                                                  self.conversations.event_history())
+                                                  self.conversations.event_history(gen.conversation_id))
                              if self.memory is not None else [])
                 window = choose_window(self.conversations.history_indexed(gen.conversation_id),
                                        self.system_prompt, gen.model, self.estimator, self.budget, retrieved)

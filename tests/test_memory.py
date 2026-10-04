@@ -22,6 +22,9 @@ class Collection:
         for key, vector, document, metadata in zip(ids, embeddings, documents, metadatas):
             self.rows[key] = {"embedding": vector, "document": document, "metadata": metadata}
 
+    def modify(self, metadata):
+        self.metadata = metadata
+
     def query(self, query_embeddings, n_results, where, include):
         query = query_embeddings[0]
         rows = [(key, row) for key, row in self.rows.items()
@@ -79,6 +82,7 @@ class MemoryTests(unittest.TestCase):
         memory.reconcile(self.events)
         self.assertEqual(set(self.collection.rows), {"event-1", "event-2", "event-3", "event-4"})
         self.assertEqual(memory.status()["indexed"], 4)
+        self.assertEqual(self.collection.metadata["embedding_dimensions"], 2)
 
     def test_retrieval_is_paraphrase_friendly_and_conversation_scoped(self):
         memory = self.memory()
