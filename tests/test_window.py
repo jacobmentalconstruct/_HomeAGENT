@@ -110,7 +110,8 @@ class WindowChoiceTests(unittest.TestCase):
 
     def test_record_holds_what_the_page_and_the_log_need(self):
         w = choose_window(self.history(51), "", MODEL, TokenEstimator(), 600)
-        self.assertEqual(set(w.record()), {"start", "sent", "dropped", "estimated_tokens", "budget", "chars", "messages"})
+        self.assertEqual(set(w.record()), {"start", "sent", "dropped", "estimated_tokens", "budget", "chars",
+                                           "messages", "sources"})
 
 
 class RunnerWindowTests(Base):
@@ -190,6 +191,28 @@ class RunnerWindowTests(Base):
         self.talk(runner, conv, ["a short question"])
         sent = [m["content"] for m in fake.requests[0]["body"]["messages"]]
         self.assertEqual(sent, ["a short question"])  # the oversize message does not poison later replies
+
+
+class RetrievedWindowTests(unittest.TestCase):
+    def test_retrieval_uses_remaining_budget_and_keeps_the_newest_message(self):
+        history = [(i, {"role": "user", "content": "old " + str(i) + " " * 100}) for i in range(8)]
+        history.append((8, {"role": "user", "content": "newest question"}))
+        item = {"id": "conv:2", "role": "assistant", "content": "The old detail is Cedar Rapids.",
+                "distance": 0.12}
+        result = choose_window(history, "", MODEL, TokenEstimator(), 120, [item])
+        self.assertLessEqual(result.estimated_tokens, result.budget)
+        self.assertEqual(result.messages[-1]["content"], "newest question")
+        self.assertTrue(any("Cedar Rapids" in message["content"] for message in result.messages))
+        self.assertEqual(result.record()["sources"][0]["id"], "conv:2")
+        self.assertGreater(result.dropped, 0)
+
+    def test_recent_duplicate_is_not_repeated_as_a_retrieved_excerpt(self):
+        content = "This exact fact is already in recent history."
+        history = [(0, {"role": "user", "content": content})]
+        item = {"id": "conv:1", "role": "user", "content": content, "distance": 0.0}
+        result = choose_window(history, "", MODEL, TokenEstimator(), 500, [item])
+        self.assertEqual(result.sources, [])
+        self.assertEqual([m["content"] for m in result.messages], [content])
 
 
 if __name__ == "__main__":

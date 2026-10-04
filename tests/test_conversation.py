@@ -102,6 +102,42 @@ class ReplyTests(Base):
                          [{"role": "system", "content": "Be brief."}, {"role": "user", "content": "first"},
                           {"role": "assistant", "content": "one"}, {"role": "user", "content": "second"}])
 
+    def test_retrieved_turn_and_source_reference_reach_the_actual_model_prompt(self):
+        class Memory:
+            def retrieve(self, query, conversation_id, events):
+                return [{"id": f"{conversation_id}:1", "role": "assistant",
+                         "content": "The saved project codename is Cedar Lantern.", "distance": 0.08}]
+
+            def status(self):
+                return {"enabled": True, "state": "ready", "indexed": 1, "error": ""}
+
+        fake, runner = self.runner(ollama_reply(["first"]), ollama_reply(["recalled"]), memory=Memory())
+        conv = self.conversations.create()
+        runner.send(conv, "first", "ol:fake:1b").finished.wait(5)
+        gen = runner.send(conv, "What was that codename?", "ol:fake:1b")
+        self.assertTrue(gen.finished.wait(5))
+        sent = fake.requests[-1]["body"]["messages"]
+        retrieved = next(m for m in sent if "Retrieved excerpts" in m["content"])
+        self.assertIn("Cedar Lantern", retrieved["content"])
+        self.assertIn(f"{conv}:1", retrieved["content"])
+        self.assertEqual(self.conversations.get(conv)["window"]["sources"][0]["id"], f"{conv}:1")
+
+    def test_degraded_memory_is_reported_while_the_reply_continues(self):
+        class Memory:
+            def retrieve(self, query, conversation_id, events):
+                return []
+
+            def status(self):
+                return {"enabled": True, "state": "degraded", "indexed": 0, "error": "Embedding service offline."}
+
+        fake, runner = self.runner(ollama_reply(["ordinary reply"]), memory=Memory())
+        conv = self.conversations.create()
+        gen = runner.send(conv, "A normal question", "ol:fake:1b")
+        self.assertTrue(gen.finished.wait(5))
+        self.assertEqual(gen.state, "done")
+        self.assertEqual(gen.window["memory"]["state"], "degraded")
+        self.assertIn("A normal question", fake.requests[0]["body"]["messages"][-1]["content"])
+
     def test_unknown_model_and_unknown_conversation_record_nothing(self):
         fake, runner = self.runner(ollama_reply(CHUNKS))
         conv = self.conversations.create()

@@ -55,8 +55,9 @@ class Turnstile:
 class Generation:
     """Live state of one reply: text so far, state, and the clients watching it."""
 
-    def __init__(self, generation_id: str, conversation_id: str, model: str):
+    def __init__(self, generation_id: str, conversation_id: str, model: str, prompt: str = ""):
         self.id, self.conversation_id, self.model = generation_id, conversation_id, model
+        self.prompt = prompt
         self.state = "queued"  # queued, running, done, failed
         self.position = 0
         self.text = ""
@@ -112,9 +113,11 @@ class GenerationRunner:
     """Starts replies and keeps the live registry. Orders model use per backend, first come first served."""
 
     def __init__(self, conversations: ConversationManager, models: ModelRegistry, *,
-                 system_prompt: str = "", num_ctx: int = 8192, reply_tokens: int = 2048, options: dict | None = None):
+                 system_prompt: str = "", num_ctx: int = 8192, reply_tokens: int = 2048,
+                 options: dict | None = None, memory=None):
         self.conversations, self.models = conversations, models
         self.system_prompt, self.options = system_prompt, options
+        self.memory = memory
         self.budget = budget_tokens(num_ctx, reply_tokens)
         self.estimator = TokenEstimator()
         for sample in conversations.samples():  # remember what past replies measured
@@ -141,7 +144,7 @@ class GenerationRunner:
         backend, model = self.models.resolve(choice)
         generation_id = uuid.uuid4().hex
         self.conversations.begin_turn(conversation_id, generation_id, text, choice, client)
-        gen = Generation(generation_id, conversation_id, choice)
+        gen = Generation(generation_id, conversation_id, choice, text)
         with self._lock:
             self._gens[generation_id] = gen
             while len(self._gens) > KEEP_FINISHED:
@@ -161,18 +164,24 @@ class GenerationRunner:
         try:
             turnstile.wait_turn(ticket, lambda ahead: gen.publish({"type": "position", "position": ahead}))
             try:
+                retrieved = (self.memory.retrieve(gen.prompt, gen.conversation_id,
+                                                  self.conversations.event_history())
+                             if self.memory is not None else [])
                 window = choose_window(self.conversations.history_indexed(gen.conversation_id),
-                                       self.system_prompt, gen.model, self.estimator, self.budget)
+                                       self.system_prompt, gen.model, self.estimator, self.budget, retrieved)
             except ContextTooLarge as exc:  # nothing is sent: better a clear failure than a silent cut
                 raise BackendError("context_exceeded", str(exc)) from exc
-            gen.publish({"type": "running", "window": window.record()})
+            window_record = window.record()
+            if self.memory is not None:
+                window_record["memory"] = self.memory.status()
+            gen.publish({"type": "running", "window": window_record})
             stream = backend.chat(model, window.messages, self.options)
             for chunk in stream:
                 gen.publish({"type": "delta", "text": chunk})
             summary = stream.summary
             self.estimator.learn(gen.model, window.chars, window.message_count, summary.prompt_tokens)
             self.conversations.finish_turn(gen.conversation_id, gen.id, stream.text, gen.model, summary,
-                                           window.record())
+                                           window_record)
             gen.publish({"type": "done", "summary": {"stop_reason": summary.stop_reason,
                                                     "prompt_tokens": summary.prompt_tokens,
                                                     "reply_tokens": summary.reply_tokens}}, final=True)

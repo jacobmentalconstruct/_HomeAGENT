@@ -106,6 +106,10 @@ class ConversationManager:
         with self._lock:
             return list(self._samples)
 
+    def event_history(self) -> list[Event]:
+        """A snapshot of source events for reconciling derived stores."""
+        return self._events.read()
+
     # -- commands -----------------------------------------------------------
 
     def create(self, client: str = "") -> str:
