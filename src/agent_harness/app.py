@@ -9,6 +9,7 @@ from .conversation.generation import GenerationRunner
 from .conversation.manager import ConversationManager
 from .locations import Locations, repo_locations
 from .memory.cartridge import ConversationMemory, disabled_memory
+from .models.ollama import has_model
 from .models.registry import ModelRegistry
 from .store.event_store import EventStore
 
@@ -24,12 +25,37 @@ class App:
     memory: ConversationMemory
 
     def close(self) -> None:
-        if self.memory._store is not None:
-            self.memory._store.close()
+        self.memory.close()
         self.events.close()
 
 
-def build_app(locations: Locations | None = None) -> App:
+def _build_memory(config: Config, models: ModelRegistry, locations: Locations,
+                  events: EventStore) -> ConversationMemory:
+    settings = config.memory
+    backend = models.backends.get(settings.embedding_backend)
+    common = dict(enabled=True, path=locations.runtime / "memory", top_k=settings.top_k,
+                  store_kind=settings.store, strict=settings.strict,
+                  identity=f"{settings.embedding_backend}:{settings.embedding_model}")
+    if backend is None:
+        memory = ConversationMemory(
+            embed=lambda texts: [], embed_fault=(
+                "embedding_backend_missing",
+                f"add an Ollama backend with id '{settings.embedding_backend}' or set "
+                "memory.embedding_backend to a configured one",
+                f"No configured backend named '{settings.embedding_backend}' to make embeddings."),
+            **common)
+    else:
+        model = settings.embedding_model
+        memory = ConversationMemory(
+            embed=lambda texts: backend.embed(model, texts),
+            model_checker=lambda: has_model(model, backend.list_models()), **common)
+    memory.reconcile_in_background(events.read())  # catch up on history without delaying startup
+    return memory
+
+
+def build_app(locations: Locations | None = None, *, with_memory: bool = False) -> App:
+    """Assemble the app. Only the server process (`serve`) passes with_memory=True: opening the memory
+    stores and indexing is that process's job, so other commands never touch them."""
     locations = locations or repo_locations()
     locations.ensure()
     config = load_config(locations.config_file)
@@ -37,25 +63,8 @@ def build_app(locations: Locations | None = None) -> App:
     models = ModelRegistry.from_config(
         config, persist=lambda choice: update_file(locations.config_file, default_model=choice))
     conversations = ConversationManager(events)
-    memory = disabled_memory()
-    if config.memory.enabled:
-        embed_backend_id = config.memory.embedding_backend
-        backend = models.backends.get(embed_backend_id)
-        if backend is None:
-            memory = disabled_memory()
-        else:
-            embed_model = config.memory.embedding_model
-            memory = ConversationMemory(
-                enabled=True, path=locations.runtime / "memory",
-                identity=f"{embed_backend_id}:{embed_model}",
-                top_k=config.memory.top_k,
-                embed=lambda texts: backend.embed(embed_model, texts),
-                store_kind=config.memory.store, strict=config.memory.strict,
-                model_checker=lambda: embed_model in backend.list_models())
-            # Background startup catch-up: index any history not yet in the vector store.
-            all_events = events.read()
-            if all_events:
-                memory.reconcile_in_background(all_events)
+    memory = (_build_memory(config, models, locations, events)
+              if with_memory and config.memory.enabled else disabled_memory())
     runner = GenerationRunner(conversations, models, system_prompt=config.system_prompt,
                               num_ctx=config.num_ctx, reply_tokens=config.max_reply_tokens, memory=memory)
     return App(locations, config, events, models, conversations, runner, memory)

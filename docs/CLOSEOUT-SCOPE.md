@@ -32,8 +32,9 @@ Scope:
    indexing inside one retrieval (bounded batches and time). The event log stays
    authoritative; indexing stays idempotent. Fake-embedder tests prove no unbounded
    first-reply stall.
-7. Lexical tier (FTS5), REQUIRED: maintain an FTS5 table in `runtime/memory/vectors.sqlite3`
-   (columns: `text`, plus UNINDEXED `conversation_id`, `event_seq`, `role`), reconciled
+7. Lexical tier (FTS5), REQUIRED: maintain an FTS5 index as its own component in `runtime/memory/lexical.sqlite3`
+   (columns: `text`, plus UNINDEXED `conversation_id`, `role`; rowid is the event seq; moved out of
+   `vectors.sqlite3` by the T3 repair review so it serves every vector store), reconciled
    idempotently from the event log whenever memory is enabled. Sanitize queries (quote each
    term, OR them; no raw FTS syntax from user text), rank with bm25, scope to the
    conversation, and map to the existing source record with a documented distance transform

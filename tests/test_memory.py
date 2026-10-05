@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from tests import support  # noqa: F401
 from agent_harness.memory.cartridge import ConversationMemory
+from agent_harness.memory.lexical_store import LexicalStore
 from agent_harness.store.event_store import Event
 
 
@@ -66,8 +67,15 @@ def event(seq, kind, conv, generation, text=""):
     return Event(seq, float(seq), kind, "USER" if kind == "turn.user" else "AGENT", conv, payload)
 
 
+def boom(_texts):
+    raise RuntimeError("offline")
+
+
 class MemoryTests(unittest.TestCase):
     def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name)
         self.collection = Collection()
         self.factory = lambda path, settings=None: Client(self.collection)
         self.events = [
@@ -79,8 +87,10 @@ class MemoryTests(unittest.TestCase):
         ]
 
     def memory(self, identity="ollama:nomic-embed-text", embedder=embed):
-        return ConversationMemory(enabled=True, path=Path("unused"), identity=identity,
-                                  top_k=4, embed=embedder, client_factory=self.factory)
+        memory = ConversationMemory(enabled=True, path=self.path, identity=identity,
+                                    top_k=4, embed=embedder, client_factory=self.factory)
+        self.addCleanup(memory.close)
+        return memory
 
     def test_chroma_client_disables_telemetry(self):
         received = {}
@@ -95,8 +105,9 @@ class MemoryTests(unittest.TestCase):
 
         chroma = SimpleNamespace(config=SimpleNamespace(Settings=settings), PersistentClient=client)
         with patch("agent_harness.memory.chroma_store.importlib.import_module", return_value=chroma):
-            memory = ConversationMemory(enabled=True, path=Path("unused"),
+            memory = ConversationMemory(enabled=True, path=self.path,
                                         identity="ollama:nomic-embed-text", top_k=4, embed=embed)
+        self.addCleanup(memory.close)
         self.assertEqual(memory.status()["state"], "ready")
         self.assertIs(received["telemetry"], False)
         self.assertIsNotNone(received["settings"])
@@ -119,9 +130,11 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(reopened.status()["state"], "ready")
         self.assertEqual(reopened._store.dimensions(), 2)
         reopened._embed = lambda texts: [[1.0, 2.0, 3.0] for _ in texts]
-        self.assertEqual(reopened.retrieve("home", "a", self.events), [])
-        self.assertEqual(reopened.status()["state"], "degraded")
-        self.assertIn("rebuild runtime/memory", reopened.status()["error"])
+        found = reopened.retrieve("home", "a", self.events)  # the vector tier is refused; keywords still serve
+        self.assertEqual({item["method"] for item in found}, {"lexical"})
+        status = reopened.status()
+        self.assertEqual((status["state"], status["tier"], status["reason"]), ("ready", "lexical", "index_incompatible"))
+        self.assertIn("rebuild runtime/memory", status["error"])
 
     def test_dimension_metadata_write_failure_does_not_degrade_retrieval(self):
         memory = self.memory()
@@ -148,32 +161,40 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(restarted.status()["state"], "ready")
         self.assertIn("event-2", self.collection.rows)
 
-    def test_missing_chroma_dependency_degrades_without_blocking_the_app(self):
-        memory = ConversationMemory(enabled=True, path=Path("unused"), identity="ollama:model", top_k=4,
+    def test_missing_chroma_dependency_leaves_keyword_search_without_blocking_the_app(self):
+        memory = ConversationMemory(enabled=True, path=self.path, identity="ollama:model", top_k=4,
                                     embed=embed, strict=True,
                                     client_factory=lambda **kwargs: (_ for _ in ()).throw(
                                         ImportError("missing chromadb")))
-        self.assertEqual(memory.status()["state"], "degraded")
-        self.assertIn("requirements.txt", memory.status()["error"])
+        self.addCleanup(memory.close)
+        status = memory.status()
+        self.assertEqual((status["state"], status["tier"], status["reason"]),
+                         ("ready", "lexical", "vector_store_unavailable"))
+        self.assertIn("requirements.txt", status["error"])
 
-    def test_embedding_identity_mismatch_is_degraded(self):
+    def test_embedding_identity_mismatch_leaves_keyword_search(self):
         self.memory().reconcile(self.events)
         other = self.memory(identity="ollama:other-model")
-        self.assertEqual(other.status()["state"], "degraded")
+        self.assertEqual((other.status()["state"], other.status()["tier"]), ("ready", "lexical"))
         self.assertIn("different", other.status()["error"])
 
-    def test_dimension_change_degrades_without_corrupting_index(self):
+    def test_dimension_change_moves_to_keyword_search_without_corrupting_index(self):
         memory = self.memory()
         memory.reconcile(self.events[:2])
         memory._embed = lambda texts: [[1.0, 2.0, 3.0] for _ in texts]
-        self.assertEqual(memory.retrieve("home", "a", self.events), [])
-        self.assertEqual(memory.status()["state"], "degraded")
+        found = memory.retrieve("home", "a", self.events)
+        self.assertEqual({item["method"] for item in found}, {"lexical"})
+        self.assertEqual((memory.status()["state"], memory.status()["reason"]), ("ready", "index_incompatible"))
         self.assertIn("dimensions changed", memory.status()["error"])
+        self.assertEqual(set(self.collection.rows), {"event-1", "event-2"})
 
     def test_embedding_failure_is_visible_and_does_not_raise_into_chat(self):
-        memory = self.memory(embedder=lambda texts: (_ for _ in ()).throw(RuntimeError("offline")))
-        self.assertEqual(memory.retrieve("home", "a", self.events), [])
-        self.assertEqual(memory.status()["state"], "degraded")
+        memory = self.memory(embedder=boom)
+        found = memory.retrieve("home", "a", self.events)
+        self.assertEqual({item["method"] for item in found}, {"lexical"})
+        status = memory.status()
+        self.assertEqual((status["state"], status["tier"], status["reason"]),
+                         ("ready", "lexical", "embedding_unavailable"))
 
     def test_disabled_memory_does_no_index_work(self):
         memory = ConversationMemory(enabled=False, path=Path(), identity="", top_k=0,
@@ -185,14 +206,11 @@ class MemoryTests(unittest.TestCase):
         """store_kind='chroma', strict=False, Chroma unavailable -> ready on SQLite store."""
         def fail_chroma(**_):
             raise ImportError("chromadb not available")
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
         memory = ConversationMemory(
-            enabled=True, path=Path(tmp.name), identity="ollama:test", top_k=4,
+            enabled=True, path=self.path, identity="ollama:test", top_k=4,
             embed=embed, store_kind="chroma", strict=False,
             client_factory=fail_chroma)
-        if memory._store is not None:
-            self.addCleanup(memory._store.close)
+        self.addCleanup(memory.close)
         s = memory.status()
         self.assertEqual(s["state"], "ready")
         self.assertEqual(s["store"], "sqlite")
@@ -200,15 +218,16 @@ class MemoryTests(unittest.TestCase):
         memory.reconcile(self.events)
         self.assertTrue(memory.retrieve("home", "a", self.events))
 
-    def test_chroma_strict_degrades_without_sqlite_fallback(self):
-        """store_kind='chroma', strict=True, Chroma unavailable -> degraded, no store opened."""
+    def test_chroma_strict_has_no_sqlite_vector_fallback(self):
+        """store_kind='chroma', strict=True, Chroma unavailable -> no vector store; keyword tier serves."""
         def fail_chroma(**_):
             raise ImportError("chromadb not available")
         memory = ConversationMemory(
-            enabled=True, path=Path("unused"), identity="ollama:test", top_k=4,
+            enabled=True, path=self.path, identity="ollama:test", top_k=4,
             embed=embed, store_kind="chroma", strict=True,
             client_factory=fail_chroma)
-        self.assertEqual(memory.status()["state"], "degraded")
+        self.addCleanup(memory.close)
+        self.assertEqual((memory.status()["state"], memory.status()["tier"]), ("ready", "lexical"))
         self.assertIsNone(memory._store)
 
     def test_sqlite_store_does_not_import_chromadb(self):
@@ -227,13 +246,10 @@ class MemoryTests(unittest.TestCase):
         recorder = _Recorder()
         sys.meta_path.insert(0, recorder)
         try:
-            tmp = tempfile.TemporaryDirectory()
-            self.addCleanup(tmp.cleanup)
             memory = ConversationMemory(
-                enabled=True, path=Path(tmp.name), identity="ollama:test", top_k=4,
+                enabled=True, path=self.path, identity="ollama:test", top_k=4,
                 embed=embed, store_kind="sqlite")
-            if memory._store is not None:
-                self.addCleanup(memory._store.close)
+            self.addCleanup(memory.close)
             memory.reconcile(self.events)
             memory.retrieve("home", "a", self.events)
         finally:
@@ -253,25 +269,23 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(s["store_reason"], "")
 
         # ready (sqlite fallback): store="sqlite", store_reason non-empty
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
         fallback = ConversationMemory(
-            enabled=True, path=Path(tmp.name), identity="ollama:test", top_k=4,
+            enabled=True, path=self.path, identity="ollama:test", top_k=4,
             embed=embed, store_kind="chroma", strict=False,
             client_factory=fail_chroma)
-        if fallback._store is not None:
-            self.addCleanup(fallback._store.close)
+        self.addCleanup(fallback.close)
         s = fallback.status()
         self.assertEqual(s["store"], "sqlite")
         self.assertTrue(s["store_reason"])
 
-        # degraded: store and store_reason must be present
-        degraded = ConversationMemory(
-            enabled=True, path=Path("unused"), identity="ollama:test", top_k=4,
+        # vector tier refused (strict, no Chroma): keyword tier serves; store fields still present
+        refused = ConversationMemory(
+            enabled=True, path=self.path / "strict", identity="ollama:test", top_k=4,
             embed=embed, store_kind="chroma", strict=True,
             client_factory=fail_chroma)
-        s = degraded.status()
-        self.assertEqual(s["state"], "degraded")
+        self.addCleanup(refused.close)
+        s = refused.status()
+        self.assertEqual((s["state"], s["tier"]), ("ready", "lexical"))
         self.assertIn("store", s)
         self.assertIn("store_reason", s)
 
@@ -282,15 +296,16 @@ class MemoryTests(unittest.TestCase):
         self.assertNotIn("store", s)
         self.assertNotIn("store_reason", s)
 
-    def test_chroma_identity_mismatch_degrades_without_fallback(self):
+    def test_chroma_identity_mismatch_leaves_keyword_tier_and_no_sqlite_fallback(self):
         """ValueError (identity/schema mismatch) never triggers SQLite fallback, even with strict=False."""
         self.memory().reconcile(self.events)
         other = ConversationMemory(
-            enabled=True, path=Path("unused"), identity="ollama:other-model",
+            enabled=True, path=self.path, identity="ollama:other-model",
             top_k=4, embed=embed, store_kind="chroma", strict=False,
             client_factory=self.factory)
+        self.addCleanup(other.close)
         s = other.status()
-        self.assertEqual(s["state"], "degraded")
+        self.assertEqual((s["state"], s["tier"], s["reason"]), ("ready", "lexical", "index_incompatible"))
         self.assertIsNone(other._store)
         self.assertEqual(s["store"], "chroma")  # initial kind; no sqlite fallback occurred
 
@@ -314,8 +329,7 @@ class T3MemoryTests(unittest.TestCase):
                         top_k=4, embed=embed, store_kind="sqlite")
         defaults.update(kwargs)
         m = ConversationMemory(**defaults)
-        if m._store is not None:
-            self.addCleanup(m._store.close)
+        self.addCleanup(m.close)
         return m
 
     # --- Status: tier field ---
@@ -332,9 +346,7 @@ class T3MemoryTests(unittest.TestCase):
         m._embed = lambda _: (_ for _ in ()).throw(RuntimeError("per-reply"))
         m.retrieve("sky", "a", self.evs)
         s = m.status()
-        # state must remain ready; tier may be lexical or vector depending on FTS availability
-        self.assertEqual(s["state"], "ready")
-        self.assertIn(s["tier"], ("vector", "lexical"))
+        self.assertEqual((s["state"], s["tier"]), ("ready", "lexical"))
 
     # --- Status: reason / fix fields ---
 
@@ -347,41 +359,34 @@ class T3MemoryTests(unittest.TestCase):
         self.assertIn("nomic-embed-text", s["fix"])
 
     def test_status_reason_index_incompatible(self):
-        """reason='index_incompatible' after a ValueError (schema/identity mismatch)."""
+        """reason='index_incompatible' after a schema/identity mismatch; keyword tier keeps memory ready."""
         tmp2 = tempfile.TemporaryDirectory()
         self.addCleanup(tmp2.cleanup)
         path2 = Path(tmp2.name)
         m1 = ConversationMemory(enabled=True, path=path2, identity="ollama:model-a",
                                 top_k=4, embed=embed, store_kind="sqlite")
-        self.addCleanup(m1._store.close)
         m1.reconcile(self.evs)
-        m1._store.close()
+        m1.close()
         m2 = ConversationMemory(enabled=True, path=path2, identity="ollama:model-b",
                                 top_k=4, embed=embed, store_kind="sqlite")
+        self.addCleanup(m2.close)
         s = m2.status()
-        self.assertEqual(s["state"], "degraded")
-        self.assertEqual(s["reason"], "index_incompatible")
+        self.assertEqual((s["state"], s["reason"]), ("ready", "index_incompatible"))
 
-    def test_status_reason_transient(self):
-        """reason='transient' when embed fails and at least FTS covers; still ready."""
-        m = self.sqlite_mem()
-        m._embed = lambda _: (_ for _ in ()).throw(RuntimeError("transient"))
-        try:
-            m.reconcile(self.evs)
-        except Exception:
-            pass
+    def test_status_reason_embedding_unavailable(self):
+        """An embedding error during reconcile is a lexical-tier reason, not a degrade."""
+        m = self.sqlite_mem(embed=boom)
+        m.reconcile(self.evs)
         s = m.status()
-        # If FTS is available: state=ready + reason=transient
-        # If FTS is unavailable: state=degraded + reason=transient (or all_tiers_failed)
-        self.assertIn(s["reason"], ("transient", "all_tiers_failed"))
+        self.assertEqual((s["state"], s["reason"]), ("ready", "embedding_unavailable"))
 
     def test_status_reason_all_tiers_failed(self):
-        """reason='all_tiers_failed' when both vector store and FTS tier fail."""
-        m = self.sqlite_mem()
-        m._degrade(RuntimeError("forced"), reason="all_tiers_failed")
+        """reason='all_tiers_failed' only when the keyword index is also unusable."""
+        with patch.object(LexicalStore, "open", side_effect=RuntimeError("no fts5")):
+            m = self.sqlite_mem(embed=boom)
+        m.reconcile(self.evs)
         s = m.status()
-        self.assertEqual(s["state"], "degraded")
-        self.assertEqual(s["reason"], "all_tiers_failed")
+        self.assertEqual((s["state"], s["reason"]), ("degraded", "all_tiers_failed"))
 
     # --- FTS5 lexical tier ---
 
@@ -392,67 +397,21 @@ class T3MemoryTests(unittest.TestCase):
         m.reconcile(self.evs)
         self.assertEqual(m.status()["state"], "ready")
 
-    def test_fts_scoped_to_conversation(self):
-        """fts_query must return only results from the requested conversation."""
-        from agent_harness.memory.sqlite_store import SqliteStore
-        store = SqliteStore(self.path / "v.db", "test")
-        store.open()
-        self.addCleanup(store.close)
-        if not store.fts_available():
-            self.skipTest("FTS5 not available in this SQLite build")
-        store.fts_upsert(["e1", "e2"],
-                         ["the sky is blue", "other conversation text"],
-                         ["conv-a", "conv-b"], [1, 2], ["user", "user"])
-        results = store.fts_query("sky", 4, "conv-b")
-        self.assertEqual(results, [])
-
-    def test_fts_ranking(self):
-        """More relevant FTS result ranks first (BM25)."""
-        from agent_harness.memory.sqlite_store import SqliteStore
-        store = SqliteStore(self.path / "v.db", "test")
-        store.open()
-        self.addCleanup(store.close)
-        if not store.fts_available():
-            self.skipTest("FTS5 not available in this SQLite build")
-        store.fts_upsert(
-            ["e1", "e2", "e3"],
-            ["sky once", "unrelated topic", "sky sky sky sky"],
-            ["c1", "c1", "c1"], [1, 2, 3], ["user", "user", "user"])
-        results = store.fts_query("sky", 2, "c1")
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["content"], "sky sky sky sky")
-
-    def test_fts_query_sanitizes_special_chars(self):
-        """FTS queries with special characters must not raise."""
-        from agent_harness.memory.sqlite_store import SqliteStore
-        store = SqliteStore(self.path / "v.db", "test")
-        store.open()
-        self.addCleanup(store.close)
-        if not store.fts_available():
-            self.skipTest("FTS5 not available in this SQLite build")
-        store.fts_upsert(["e1"], ["some text"], ["c1"], [1], ["user"])
-        for raw in ('"quoted"', "AND thing", "NEAR/5 word", "key:value", 'a "b" c'):
-            with self.subTest(q=raw):
-                self.assertIsInstance(store.fts_query(raw, 4, "c1"), list)
-
-    def test_fts_method_field_is_lexical(self):
-        """FTS results must include method='lexical'."""
-        from agent_harness.memory.sqlite_store import SqliteStore
-        store = SqliteStore(self.path / "v.db", "test")
-        store.open()
-        self.addCleanup(store.close)
-        if not store.fts_available():
-            self.skipTest("FTS5 not available in this SQLite build")
-        store.fts_upsert(["e1"], ["the sky is blue"], ["c1"], [1], ["user"])
-        results = store.fts_query("sky", 4, "c1")
-        self.assertTrue(results)
-        self.assertEqual(results[0]["method"], "lexical")
+    def test_fts_reconcile_idempotent_in_the_keyword_index(self):
+        """Double-reconcile must not error or duplicate keyword rows."""
+        m = self.sqlite_mem()
+        m.reconcile(self.evs)
+        m.reconcile(self.evs)
+        self.assertEqual(m.status()["state"], "ready")
+        self.assertEqual(m.status()["lexical_indexed"], 4)
 
     def test_fts_absent_vector_tier_still_ready(self):
         """If FTS5 is absent but vector tier works, state must remain ready."""
-        m = self.sqlite_mem()
-        # If FTS5 were absent, the vector tier still covers; memory stays ready
-        self.assertEqual(m.status()["state"], "ready")
+        with patch.object(LexicalStore, "open", side_effect=RuntimeError("no fts5")):
+            m = self.sqlite_mem()
+        m.reconcile(self.evs)
+        s = m.status()
+        self.assertEqual((s["state"], s["tier"], s["reason"]), ("ready", "vector", "lexical_unavailable"))
 
     def test_per_reply_embed_fail_uses_fts_no_degrade(self):
         """Per-reply embed failure falls back to FTS and does NOT degrade memory."""
@@ -462,7 +421,7 @@ class T3MemoryTests(unittest.TestCase):
         results = m.retrieve("sky", "a", self.evs)
         s = m.status()
         self.assertEqual(s["state"], "ready")
-        self.assertIsInstance(results, list)
+        self.assertEqual({r["method"] for r in results}, {"lexical"})
 
     # --- Latency bounds ---
 

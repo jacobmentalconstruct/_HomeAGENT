@@ -19,7 +19,7 @@ Run it on the PC that has your GPU, then chat with it from any device on your ho
 
 - Python 3.10 or newer (developed on 3.13). No packages to install for ordinary chat or for the FTS5 lexical memory tier.
 - [Ollama](https://ollama.com) running on the same machine, with at least one chat model pulled (for example `ollama pull qwen3.5:9b`). A llama.cpp server is also supported; see [Configuration](docs/CONFIGURATION.md).
-- For the full vector memory tier: `python -m pip install -r requirements.txt` installs Chroma. Without it, memory falls back to FTS5 automatically.
+- For the full vector memory tier: `python -m pip install -r requirements.txt` installs Chroma (recommended). Without it memory uses a SQLite vector store, and without embeddings it uses keyword search.
 - Developed and tested on Windows 10 with an NVIDIA GPU. The server and page use only portable standard-library code. The control panel needs tkinter, which the standard Python installer for Windows includes.
 
 ## Quick start

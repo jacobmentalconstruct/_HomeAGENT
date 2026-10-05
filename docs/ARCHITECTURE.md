@@ -35,7 +35,9 @@ for the originating proposal.
 | `conversation/manager.py` | Conversations and their turns, rebuilt from the log. |
 | `conversation/generation.py` | One reply per worker thread, and the first-come queue per model. |
 | `conversation/window.py` | Which messages fit in the model's context. |
-| `memory/cartridge.py` | Two-tier memory index (vector + FTS5 lexical), reconciled from recorded turns, queried only within the active conversation. |
+| `memory/cartridge.py` | Orchestrates the two memory tiers, reconciled from recorded turns and queried only within the active conversation; owns the status machine. |
+| `memory/chroma_store.py`, `memory/sqlite_store.py` | The two interchangeable vector stores. |
+| `memory/lexical_store.py` | The FTS5 keyword index: its own file, independent of the vector store. |
 | `interfaces/web.py`, `page.html` | The HTTP server and the single-page chat. |
 | `interfaces/cli.py` | The command line. |
 | `interfaces/control.py`, `gui.py` | The control panel: its logic, and its window. |
@@ -49,13 +51,13 @@ Everything that happens is appended to a SQLite table (`conversation.created`, `
 The memory cartridge is enabled by default and indexes completed user and assistant turns as derived data. It has two retrieval tiers:
 
 - **Vector tier**: uses Ollama embeddings and a Chroma (preferred) or SQLite dot-product store. Fast semantic similarity. Requires the embedding model to be available.
-- **Lexical tier (FTS5)**: SQLite full-text search with BM25 ranking. No extra packages. Used per-reply as a fallback when the embedding model is unavailable, and as the catch-up path during startup reconcile.
+- **Lexical tier (FTS5)**: SQLite full-text search with BM25 ranking in its own file (`lexical.sqlite3`). No extra packages. It is opened and reconciled whenever memory is enabled, for every vector store, and serves whenever the vector tier cannot.
 
-Indexing happens in the background after each reply and at startup. A bounded batch prevents the first reply from stalling on a large backlog (`RECONCILE_BATCH` events per retrieve call). Before retrieval, missing turns are indexed from the event log so interrupted indexing is repaired. Queries are filtered by conversation ID.
+Only the server process opens the memory stores (`build_app(with_memory=True)`, used by `serve`); other commands build the app without them. Indexing happens in the background after each reply and at startup. A bounded batch prevents the first reply from stalling on a large backlog (`RECONCILE_BATCH` events per retrieve call). Before retrieval, missing turns are indexed from the event log so interrupted indexing is repaired. Queries are filtered by conversation ID.
 
 The index records its schema and embedding model identity; vector dimensions are checked against stored vectors. A mismatch raises a hard error and asks the operator to rebuild the index. Memory failures do not stop chat.
 
-**Status machine.** The cartridge reports `state` (`ready`, `degraded`, `disabled`), `tier` (`vector`, `lexical`), `reason` (machine-readable: `embedding_model_missing`, `index_incompatible`, `transient`, `all_tiers_failed`), and `fix` (human text). `ready` with a `lexical` tier means the vector tier is unavailable but FTS5 is serving. `degraded` means all tiers failed for that reply.
+**Status machine.** The cartridge reports `state` (`ready`, `degraded`, `disabled`), `tier` (`vector`, `lexical`, `none`), `reason` (machine-readable, see CONFIGURATION), and `fix` (human text). `ready` with a `lexical` tier means the vector tier cannot serve (missing model or backend, an embedding error, an incompatible index) but the keyword tier is. An embedding error never degrades memory: it is a tier fault that is retried on the next reply. `degraded` means no tier works; replies where every tier failed are counted in `failed_retrievals` and described in `last_error`.
 
 Retrieved excerpts are added only when they fit. If necessary, older recent-context messages are dropped first; the newest user message is retained or the existing clear context-limit failure is returned. Excerpts are marked as quoted context and their source event references are recorded with the reply window. Disable memory in config to detach it; this takes effect after restart.
 

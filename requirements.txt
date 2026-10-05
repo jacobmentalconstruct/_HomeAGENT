@@ -1,2 +1,3 @@
-# Optional local vector store for the conversation memory cartridge.
+# Recommended: Chroma, the preferred vector store for the conversation memory cartridge.
+# Memory still works without it (SQLite vectors, then keyword search).
 chromadb>=1.0,<2

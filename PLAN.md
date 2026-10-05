@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. T3 repair in progress on t3-rag-default (review of T3: not accepted); T2 reopened, approved, for one carry-over (SQLite conversation index).
+3. T3 repaired and parked on t3-rag-default, awaiting USER acceptance; T2 reopened (approved) for one carry-over: SQLite conversation index.
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -111,11 +111,11 @@ complete. Full T3–T6 scopes, non-goals, and exit criteria are in
 - [x] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
   `sqlite` selection never imports chromadb (asserted); Chroma behavior unchanged; benchmark recorded;
   parked on `t2-store-seam`. (Accepted by USER 2026-10-05)
-- [ ] **T3** (repair in progress; not accepted) Full suite green both ways; memory default-on for new configs; three-tier state machine
+- [x] **T3** (repaired; awaiting USER acceptance) Full suite green both ways; memory default-on for new configs; three-tier state machine
   (ready/degraded/disabled); FTS5 lexical tier maintained and tested; both modes verified:
   `python -B -m unittest tests.test_memory` → 31 OK (chromadb present);
   `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest tests.test_memory` → 31 OK (absent);
-  full suite: 255 tests, 2 skipped, 0 failures; docs updated; parked on `t3-rag-default`.
+  full suite after repair: 281 tests, 2 skipped, 0 failures in both modes (see T3 repair evidence); live three-condition check recorded; docs updated; parked on `t3-rag-default`.
 - [ ] **T4** Full suite green; `verify_derived` pure function tested; overflow config switch tested;
   page shows derived block (textContent only); memory bounded re-probe tested; dependency table in
   ARCHITECTURE; parked on `t4-harden`.
@@ -160,7 +160,7 @@ policy above. Applied in T2.
 
 ## Current work: T3 repair (review round 1)
 
-Status: **approved by USER (2026-10-05): T3 not accepted; repair pass below. Do not start T4.**
+Status: **repair complete, parked as `T3 repair:`; awaiting USER acceptance. T4 not started.**
 Branch: `t3-rag-default`. Parking commit message prefix: `T3 repair:`.
 
 Approved reopen of T2 (carry-over, item 6 only): `SqliteStore.open()` creates
@@ -212,13 +212,27 @@ Acceptance bullet -> named test (all in `tests/test_t3_repair.py` unless noted):
 
 Progress:
 - [x] Declare T3 repair; record T2 reopen; map bullets to tests
-- [ ] Failing tests written and shown red
-- [ ] A, B, C, D, E implemented
-- [ ] Existing tests updated for the new tier semantics
-- [ ] Docs updated (README, ARCHITECTURE, CONFIGURATION, SECURITY, API, CLOSEOUT-SCOPE line 7)
-- [ ] BACKLOG lines added (item 13)
-- [ ] Live three-condition check recorded (item 10)
-- [ ] Both suite modes green; park as `T3 repair:`; push `t3-rag-default` and `RAG-SUM-GRAPH`
+- [x] Failing tests written and shown red (commit `eb222cf`; module import errors before implementation)
+- [x] A, B, C, D, E implemented
+- [x] Existing tests updated for the new tier semantics (tests/test_memory.py; tests/test_web.py disables memory explicitly)
+- [x] Docs updated (README, ARCHITECTURE, CONFIGURATION, SECURITY, API, CLOSEOUT-SCOPE item 7)
+- [x] BACKLOG lines added (item 13: five lines)
+- [x] Live three-condition check recorded (item 10)
+- [x] Both suite modes green; park as `T3 repair:`; push `t3-rag-default` and `RAG-SUM-GRAPH`
+
+Evidence (2026-10-05, this machine, real Ollama with `nomic-embed-text:latest` installed, chromadb 1.3.5):
+- `python -B -m unittest discover -s tests` (Chroma present): 281 tests, OK, 2 skipped, 156.6 s.
+- `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest discover -s tests` (Chroma blocked): 281 tests, OK, 2 skipped, 156.2 s.
+- Live probe, `python -B -m tests.live_memory_probe [--model NAME]` (seeds 4 turns, retrieves "Where do I live?"):
+  1. Chroma importable, model present (`nomic-embed-text`, a tagged list entry): state ready, store chroma, tier vector, reason "", methods all vector, top hit "Your home is in Cedar Rapids." (the live bug: tier no longer reports lexical while vectors serve).
+  2. `AGENT_HARNESS_BLOCK_MODULES=chromadb`, model present: state ready, store sqlite (store_reason "chroma unavailable (ModuleNotFoundError); using sqlite fallback."), tier vector, methods vector, same top hit.
+  3. Chroma importable, `--model no-such-embed-model`: state ready, store chroma, tier lexical, reason embedding_model_missing, fix "run: ollama pull no-such-embed-model", indexed 0, lexical_indexed 4, methods lexical, top hit "Where is my home?".
+  4. Chroma blocked and `--model no-such-embed-model`: state ready, store sqlite, tier lexical, same reason and fix, lexical_indexed 4, methods lexical.
+- Not run: no real browser check of the page's memory note (JS syntax checked with `node --check`; the note text is covered by a source-level test only); no live Ollama failure mid-reply (embedding error during a reply is covered by tests with a failing embedder).
+
+Limitations recorded:
+- A transient embedding failure is retried on every reply (and every background reconcile) with no backoff; bounded re-probe stays in T4 (BACKLOG, MEMORY_WATCHLIST item 3).
+- The lexical `distance` is not comparable to a vector distance; documented in API.md.
 
 ## Superseded parking entry: T3 (first pass, not accepted)
 

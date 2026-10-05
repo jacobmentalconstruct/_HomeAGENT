@@ -24,7 +24,7 @@ A missing or wrong token gets `401`. The page itself (`GET /`) needs no token. R
 | `GET /api/conversations/{id}` | `{"id", "title", "open_generation", "window", "turns": [{"role", "text", "ts", "model", "failed", "truncated"}]}`. `window` describes what the latest reply was sent, including any derived context and its provenance. |
 | `POST /api/conversations/{id}/messages` | Send a message: `{"text": "...", "model": "backend:model"}`. `202 {"generation_id": "..."}`. |
 | `GET /api/generations/{id}/stream` | Follow a reply as it is written (below). |
-| `GET /api/status` | `{"uptime_seconds", "replies_in_progress", "conversations", "default_model", "loaded", "memory"}`; `memory` reports `enabled`, `state` (`disabled`, `ready`, or `degraded`), `tier` (`vector` or `lexical`), `reason` (machine-readable cause, empty when healthy), `fix` (human text, empty when healthy), indexed entry count, and a short error when degraded. |
+| `GET /api/status` | `{"uptime_seconds", "replies_in_progress", "conversations", "default_model", "loaded", "memory"}`; `memory` reports `enabled`, `state` (`disabled`, `ready`, or `degraded`), `tier` (`vector`, `lexical`, or `none` when degraded), `reason` (machine-readable cause, empty when healthy), `fix` (human text, empty when healthy), `indexed` (vector entries), `lexical_indexed` (keyword entries), `failed_retrievals` and `last_error` (replies where every tier failed), and an error text while any tier has a fault. `state` is `degraded` only when no tier works. |
 | `POST /api/unload` | Unload models from GPU memory: `{"unloaded": {"ollama": ["model", ...]}}`. `409` while a reply is running. |
 
 Message text is limited to 20,000 characters and request bodies to 1 MB.
@@ -43,7 +43,7 @@ After that, one of these per line:
 | `type` | Fields | Meaning |
 |---|---|---|
 | `position` | `position` | Replies ahead of yours on this model. |
-| `running` | `window` | Your turn has come. `window` includes context counts, retrieved `sources`, and memory state (`enabled`, `state`, `tier`, `reason`, `fix`, `indexed`, `error`). Sources list older turns retrieved from this conversation and included in the prompt; each source carries a `method` field (`vector` or `lexical`). When overflow extraction is used, `window.derived` contains the method/version, transformed text, and source event IDs with character ranges and hashes. |
+| `running` | `window` | Your turn has come. `window` includes context counts, retrieved `sources`, and memory state (`enabled`, `state`, `tier`, `reason`, `fix`, `indexed`, `error`). Sources list older turns retrieved from this conversation and included in the prompt; each source carries a `method` field (`vector` or `lexical`). For both methods `distance` means smaller is better, but the scales are different and must not be compared across methods: a vector distance is cosine distance; a lexical `distance` is `1 / (1 + score)` in (0, 1], where `score` (larger is better, also returned by the keyword index) is the clamped negated BM25 value. When overflow extraction is used, `window.derived` contains the method/version, transformed text, and source event IDs with character ranges and hashes. |
 | `progress` | `phase`, `completed`, `total` | Overflow extraction progress while the reply holds its model queue ticket. `completed` counts finished source chunks; `total` is the bounded chunk count. |
 | `reset` | | The first attempt hit a backend context error; discard any partial text before the single fallback retry. |
 | `delta` | `text` | More of the reply. |

@@ -10,6 +10,15 @@ from .backend import Backend, ChatStream
 from .errors import BackendError
 
 
+def _tagged(name: str) -> str:
+    return name if ":" in name else f"{name}:latest"
+
+
+def has_model(wanted: str, listed: list[str]) -> bool:
+    """Ollama lists tagged names ("nomic-embed-text:latest"); a name without a tag means ":latest"."""
+    return _tagged(wanted) in {_tagged(name) for name in listed}
+
+
 class OllamaBackend(Backend):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

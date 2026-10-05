@@ -96,18 +96,6 @@ class ChromaStore:
                           "distance": float(distance)})
         return found
 
-    def fts_available(self) -> bool:
-        return False
-
-    def fts_ids(self) -> set:
-        return set()
-
-    def fts_upsert(self, ids, texts, conversation_ids, seqs, roles) -> None:
-        pass
-
-    def fts_query(self, raw_query: str, n_results: int, conversation_id: str) -> list:
-        return []
-
     def close(self) -> None:
         self._collection = None
         if self._client is not None:

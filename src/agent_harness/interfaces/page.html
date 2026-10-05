@@ -25,6 +25,8 @@
   #meter .bar span { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
   .marker { max-width: 46rem; margin: 6px auto 10px; padding-top: 6px; border-top: 1px dashed var(--line); text-align: center; color: var(--muted); font-size: 12px; }
   #banner { display: none; padding: 6px 12px; font-size: 14px; background: var(--panel); color: var(--bad); border-bottom: 1px solid var(--line); }
+  #memnote { display: none; padding: 6px 12px; font-size: 13px; background: var(--panel); color: var(--muted); border-bottom: 1px solid var(--line); }
+  #memnote.warn { color: var(--bad); }
   main { flex: 1; display: flex; min-height: 0; position: relative; }
   #list { width: 260px; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); }
   #list button { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; }
@@ -66,6 +68,7 @@
   <button id="new">New</button>
 </header>
 <div id="banner"></div>
+<div id="memnote"></div>
 <div id="meter"></div>
 <main>
   <nav id="list"></nav>
@@ -110,10 +113,7 @@ function showWindow(w) {
   document.querySelectorAll("#log .marker").forEach((e) => e.remove());
   const meter = $("meter");
   if (!w) { meter.style.display = "none"; return; }
-  if (w.memory && w.memory.state === "degraded") {
-    $("banner").textContent = "Conversation memory unavailable: " + w.memory.error;
-    $("banner").style.display = "block";
-  }
+  showMemory(w.memory);
   const pct = Math.min(100, Math.round(100 * w.estimated_tokens / w.budget));
   meter.textContent = "";
   meter.appendChild(el("div", "", "Context: about " + w.estimated_tokens + " of " + w.budget + " tokens"
@@ -125,6 +125,23 @@ function showWindow(w) {
     const first = document.querySelectorAll("#log .turn")[w.start];
     if (first) first.parentNode.insertBefore(el("div", "marker", "Earlier messages are kept, but no longer sent to the model"), first);
   }
+}
+
+// Memory notes: informational for a disabled switch or a fallback tier, a warning when no tier works.
+function showMemory(m) {
+  const box = $("memnote");
+  let text = "", warn = false;
+  if (m && m.state === "disabled") text = "Conversation memory is disabled in config; set memory.enabled to true.";
+  else if (m && m.state === "degraded") { warn = true; text = "Conversation memory is unavailable: " + (m.error || "no retrieval tier works.") + (m.fix ? " Fix: " + m.fix : ""); }
+  else if (m && (m.tier === "lexical" || m.reason || m.store_reason)) {
+    const bits = [];
+    if (m.tier === "lexical") bits.push("Conversation memory is using keyword search only, so recall of reworded questions is weaker (" + (m.reason || "vector tier unavailable") + ").");
+    else if (m.reason) bits.push("Conversation memory note (" + m.reason + ").");
+    if (m.store_reason) bits.push(m.store_reason);
+    text = bits.join(" ") + (m.fix ? " Fix: " + m.fix : "");
+  }
+  box.textContent = text; box.className = warn ? "warn" : "";
+  box.style.display = text ? "block" : "none";
 }
 
 function scroll() { const log = $("log"); log.scrollTop = log.scrollHeight; }
@@ -142,8 +159,7 @@ async function loadModels() {
   }
   const want = [store.get("harness_model"), data.default].find((c) => c && [...select.options].some((o) => o.value === c));
   if (want) select.value = want;
-  if (status.memory && status.memory.state === "degraded")
-    down.push("conversation memory unavailable: " + status.memory.error);
+  showMemory(status.memory);
   $("banner").style.display = down.length ? "block" : "none";
   $("banner").textContent = down.length ? "Unavailable: " + down.join(", ") : "";
   $("send").disabled = !select.options.length;

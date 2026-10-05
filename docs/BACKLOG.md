@@ -23,3 +23,8 @@ Items promoted to a tranche are removed from this list when that tranche is decl
 - Multi-model fallback for overflow extraction.
 - Cloud services or remote sync.
 - T6 cleanup: delete merged feature branches after tagging (tranche branches already fast-forwarded into `RAG-SUM-GRAPH`).
+- EventStore WAL mode: only if a database lock error is actually reproduced.
+- A "dropped" stream marker so a client dropped for being slow reconnects at once instead of waiting.
+- Bound the token estimator's learned samples (use a deque).
+- In-memory projection of the full event history at boot (v2): startup reads and replays everything.
+- TLS and token rate limiting (already documented as not provided in SECURITY.md).
