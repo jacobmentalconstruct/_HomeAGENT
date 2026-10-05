@@ -31,6 +31,7 @@ the prior no-Git statements record that initial observation and are now
 superseded. Historical RAG branch names, commit IDs, and merge status below
 describe the source project. Detailed implementation and repair evidence is
 recorded under `## Log`.
+
 Existing harness behavior and the focused context/memory/architecture baseline
 were reviewed; the original focused baseline was 38 tests, and the initial T1
 full suite passed 203 tests. Current repair verification is in `## Log`.
@@ -161,6 +162,30 @@ T0 verification and close-out (2026-10-04):
 - 2026-10-04 T1 accepted and fast-forwarded from
   `t1-bounded-overflow-extraction` to `RAG-SUM-GRAPH`; `main` remains unchanged.
   The exact merge and push state is the current Git state above.
+
+- 2026-10-04 local model comparison: ran the same `num_ctx=2048`,
+  `max_reply_tokens=256` overflow fixture through already-downloaded Ollama chat
+  models using `python -B tests/ollama_overflow_smoke.py MODEL`. All seven runs
+  completed fallback at depth 1, classified the raw request as
+  `context_exceeded`, and reported all planted facts in derived source spans.
+  Final response quality varied:
+
+  | Model | Final response on hidden-marker question | Prompt tokens |
+  |---|---|---:|
+  | `qwen2.5:0.5b` | Correct VIOLET sentence with one distractor excerpt | 315 |
+  | `qwen2.5:1.5b` | Correct VIOLET sentence | 316 |
+  | `qwen2.5:3b` | Incorrect: `MARIGOLD.` | 268 |
+  | `qwen2.5:7b` | Correct VIOLET sentence | 268 |
+  | `phi3:mini-128k` | Noisy; includes VIOLET but also unsupported elaboration | 294 |
+  | `qwen3.5:4b` | Correct VIOLET sentence | 288 |
+  | `qwen3.5:9b` | Correct VIOLET sentence | 305 |
+
+  Extraction/span validation establishes that included context is source text;
+  it does not validate the model's final answer. In this small sample, 3b
+  selected the wrong planted value, while Phi-3 added unsupported prose.
+  Embedding-only models and the 14B/35B models were not run. The smoke runner
+  now accepts an optional downloaded model name; this is a fixture comparison,
+  not a general benchmark.
 
 ## Completed work: T0 documentation alignment
 

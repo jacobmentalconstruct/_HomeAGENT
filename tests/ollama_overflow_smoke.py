@@ -1,4 +1,8 @@
-"""Run the deterministic overflow document through a real local 0.5B Ollama model."""
+"""Run the deterministic overflow document through a local Ollama model.
+
+Pass a downloaded model name as the optional first argument; defaults to the
+small qwen2.5:0.5b baseline. Example: python -B tests/ollama_overflow_smoke.py qwen2.5:3b
+"""
 
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ from agent_harness.models.transport import Transport
 from agent_harness.store.event_store import EventStore
 
 
-def main() -> int:
+def main(model: str = "qwen2.5:0.5b") -> int:
     text, expected_facts = primary_document()
     with tempfile.TemporaryDirectory(prefix="agent-harness-overflow-") as directory:
         store = EventStore(Path(directory) / "events.sqlite3")
@@ -31,7 +35,7 @@ def main() -> int:
             backend = OllamaBackend(BackendConfig("ol", "ollama", "http://127.0.0.1:11434"),
                                     Transport(timeouts), 2048, 256)
             try:
-                for _part in backend.chat("qwen2.5:0.5b", [{"role": "user", "content": text}]):
+                for _part in backend.chat(model, [{"role": "user", "content": text}]):
                     pass
                 raw_overflow_reason = "unexpected_success"
             except BackendError as exc:
@@ -40,7 +44,7 @@ def main() -> int:
                                       system_prompt=("Read the user's final Question: section and answer with only "
                                                      "the requested value. Do not quote or summarize the context."),
                                       num_ctx=2048, reply_tokens=256, options={"temperature": 0})
-            generation = runner.send(conversation_id, text, "ol:qwen2.5:0.5b")
+            generation = runner.send(conversation_id, text, f"ol:{model}")
             if not generation.finished.wait(600):
                 print(json.dumps({"state": "timeout"}))
                 return 2
@@ -48,6 +52,7 @@ def main() -> int:
             window = conversations.get(conversation_id)["window"] or {}
             derived = window.get("derived") or {}
             result = {
+                "model": model,
                 "state": snapshot["state"],
                 "raw_overflow_reason": raw_overflow_reason,
                 "answer": snapshot["text"],
@@ -67,4 +72,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1] if len(sys.argv) > 1 else "qwen2.5:0.5b"))
