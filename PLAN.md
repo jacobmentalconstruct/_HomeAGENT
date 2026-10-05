@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. Project complete: v0.2.0 tagged on RAG-SUM-GRAPH (T6). The USER merges RAG-SUM-GRAPH -> main.
+3. v0.2.0 tagged (T6). T7 audit fixes declared on t7-audit-fixes, awaiting USER approval; no code changed yet.
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -158,9 +158,64 @@ The charter invariant "The local privacy boundary and optional-dependency behavi
 force unless a specific future tranche changes them" will be updated to reference the dependency
 policy above. Applied in T2.
 
-## Current work: T6 Release
+## Current work: T7 Pre-merge audit fixes (declared; awaiting USER approval)
 
-Status: **complete; tagged `v0.2.0`. Stopped. The USER merges `RAG-SUM-GRAPH` into `main`.**
+Status: **declared 2026-10-05; awaiting USER approval. Nothing is implemented until approval.**
+Branch: `t7-audit-fixes` (off `RAG-SUM-GRAPH` at `fd7c60c`, the `v0.2.0` tag). Park as `T7:`; tag `v0.2.1`;
+`v0.2.0` is not moved. The USER merges to `main`.
+
+Scope (from the release audit; no other scope):
+1. `overflow.sentences()`: the `SENTENCE` separator regex consumes closing quotes and brackets, so
+   `He said "stop." Then left.` yields units `He said "stop.` and `Then left.` and the closing `"` (index 14) belongs to
+   no unit (reproduced 2026-10-05). Split after the closing-quote run so every non-whitespace character belongs to
+   exactly one unit.
+2. `lexical_store._sanitize()`: strip control characters. Reproduced: `"\x00"` and `"a\x00b"` make FTS5 raise
+   `OperationalError: unterminated string`, which sets a keyword-tier fault.
+3. `config.load_config()`: write the config atomically, like `update_file` (temporary file, then `os.replace`).
+4. Docs, README and ARCHITECTURE: after a fallback reply, follow-up questions do not see the document or anything older
+   than it (the oversized turn ends the window run); retrieval may help; memory indexes whole turns, so a long turn is
+   embedded from its first part only and cannot be injected when it does not fit. Document the `store_reason` status
+   field in API.md and CONFIGURATION.md.
+5. Add to `docs/BACKLOG.md`, one line each, not implemented: chunked indexing of long turns; reuse of derived context for
+   follow-ups; a verify command or page mark for `verify_derived`; refactor `make_server` (complexity 53) and
+   `derive_context` (complexity 40); log lines for swallowed memory exceptions.
+6. Version 0.2.1, CHANGELOG entry, full suite in both modes, a fresh-clone run, tag `v0.2.1`, push `RAG-SUM-GRAPH` and
+   the tag. Stop.
+
+Non-goals: anything not listed; no re-run of the T5 eval (its fixtures contain no closing quotes or brackets after
+sentence ends; the implementation will confirm their unit boundaries are unchanged and record it, and if any changed
+it will stop and ask).
+
+Acceptance bullet -> named test or artifact (tests in `tests/test_t7_audit_fixes.py`, written failing first):
+- 1 sentence coverage: `SentenceCoverageTests.test_closing_quote_after_a_sentence_stays_with_its_sentence` (the repro,
+  plus `)` and `'` variants), `.test_every_non_whitespace_character_belongs_to_exactly_one_unit` (seeded random text
+  property test: sentences, quotes, brackets, newlines, long unpunctuated runs); evidence: eval fixture units
+  unchanged.
+- 2 control characters: `LexicalSanitizeTests.test_control_characters_are_stripped_from_queries` (`"\x00"`,
+  `"a\x00b"`, and every other C0 control and DEL), `.test_a_query_with_control_characters_does_not_flip_the_memory_status`
+  (state stays `ready`, no keyword-tier fault, `failed_retrievals` 0).
+- 3 atomic config write: `AtomicConfigWriteTests.test_a_failed_write_leaves_the_old_config_intact` (simulated failure
+  in the write and in `os.replace`), `.test_a_successful_write_leaves_no_temporary_file`.
+- 4 docs: `T7DocsTests.test_readme_and_architecture_describe_follow_ups_after_a_fallback_reply`,
+  `.test_store_reason_is_documented_in_api_and_configuration`; behavior behind the claim:
+  `FollowUpWindowTests.test_a_follow_up_after_a_fallback_reply_sends_neither_the_document_nor_older_turns`.
+- 5 backlog: `T7DocsTests.test_backlog_lists_the_five_audit_items`.
+- 6 release: `ReleaseTests.test_version_is_0_2_1`, `.test_changelog_has_a_0_2_1_entry`; the T6 test
+  `tests/test_t6_release.py::ReleaseTests.test_version_is_0_2_0` is changed to read the version from the latest
+  CHANGELOG heading rather than a fixed string. Artifacts: both suite modes, a fresh-clone run (commands and results
+  recorded here), the `v0.2.1` tag and push output in the final report.
+
+Progress:
+- [x] Declare T7; map every bullet
+- [ ] USER approval
+- [ ] Failing tests written and shown red
+- [ ] Items 1-5
+- [ ] Version, CHANGELOG, both suite modes, fresh clone
+- [ ] Park as `T7:`; fast-forward and push `RAG-SUM-GRAPH`; tag and push `v0.2.1`; stop
+
+## Parked: T6 Release
+
+Status: **complete; tagged `v0.2.0`.**
 Branch: `t6-release` (off `RAG-SUM-GRAPH` at the T5 head `b6a32dd`, which was pushed to `origin/RAG-SUM-GRAPH`
 at the start of T6: `71ebc12..b6a32dd`, a fast-forward through T3, T4 and T5).
 USER instruction recorded: push `RAG-SUM-GRAPH` after each accepted tranche.
