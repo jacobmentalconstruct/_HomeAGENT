@@ -205,7 +205,11 @@ Progress:
 - [x] PLAN.md "project complete"; fast-forward and push RAG-SUM-GRAPH; tag and push `v0.2.0`; delete merged branches; stop
 
 Evidence and findings (2026-10-05):
-- Fresh clone (`git clone --branch t6-release` into a temporary directory): FRESH_RESULTS
+- Fresh clone (`git clone --branch t6-release` of `9981e0c` into a temporary directory): with chromadb (system Python,
+  chromadb 1.3.5) `python -B -m unittest discover -s tests`: 357 tests, OK, 2 skipped, 172.2 s; without chromadb (a new
+  venv with nothing installed) `<venv>\Scripts\python -B -m unittest discover -s tests`: 357 tests, OK, 4 skipped,
+  170.8 s. An earlier clone of `906b644` failed only the two tests for artifacts not yet committed (smoke matrix, final
+  plan), as expected; they were committed and the clone was repeated.
 - Live smoke matrix: `docs/SMOKE-MATRIX.md`. Highlights: all three memory conditions (and the combination) behave as
   documented; `--backlog 800` retrieve 0.226 s during a 7.35 s catch-up; a real 10,871-character Document + Question
   message sent through the page in the browser to `qwen3.5:4b` was answered correctly with a `small_ends` derived

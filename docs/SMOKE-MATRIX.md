@@ -7,12 +7,13 @@ temporary directory, never the real `runtime/`.
 
 ## Full suite from a fresh clone
 
-`git clone --branch t6-release` of the release commit into a temporary directory, then:
+`git clone --branch t6-release` of commit `9981e0c` into a temporary directory, then (the next commit only fills in
+these results):
 
 | Run | Command | Result |
 |---|---|---|
-| with chromadb (system Python, chromadb 1.3.5 installed) | `python -B -m unittest discover -s tests` | FRESH_WITH |
-| without chromadb (a new `python -m venv` with nothing installed; `import chromadb` fails) | `<venv>\Scripts\python -B -m unittest discover -s tests` | FRESH_WITHOUT |
+| with chromadb (system Python, chromadb 1.3.5 installed) | `python -B -m unittest discover -s tests` | 357 tests, OK, 2 skipped, 172.2 s |
+| without chromadb (a new `python -m venv` with nothing installed; `import chromadb` fails) | `<venv>\Scripts\python -B -m unittest discover -s tests` | 357 tests, OK, 4 skipped, 170.8 s |
 
 Skipped with chromadb: the two blocker checks in `tests/test_support_blocker.py` that only run under
 `AGENT_HARNESS_BLOCK_MODULES=chromadb`. Skipped without chromadb: those two, the "chromadb importable" check in the
