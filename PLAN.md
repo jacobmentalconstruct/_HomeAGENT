@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. T3 repaired and parked on t3-rag-default, awaiting USER acceptance; T2 reopened (approved) for one carry-over: SQLite conversation index.
+3. T3 accepted (USER, 2026-10-05). T4 Harden declared on t4-harden (off the T3 head); T5 not started.
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -111,7 +111,7 @@ complete. Full T3–T6 scopes, non-goals, and exit criteria are in
 - [x] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
   `sqlite` selection never imports chromadb (asserted); Chroma behavior unchanged; benchmark recorded;
   parked on `t2-store-seam`. (Accepted by USER 2026-10-05)
-- [x] **T3** (repaired; awaiting USER acceptance) Full suite green both ways; memory default-on for new configs; three-tier state machine
+- [x] **T3** (accepted by USER 2026-10-05) Full suite green both ways; memory default-on for new configs; three-tier state machine
   (ready/degraded/disabled); FTS5 lexical tier maintained and tested; both modes verified:
   `python -B -m unittest tests.test_memory` → 31 OK (chromadb present);
   `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest tests.test_memory` → 31 OK (absent);
@@ -158,7 +158,66 @@ The charter invariant "The local privacy boundary and optional-dependency behavi
 force unless a specific future tranche changes them" will be updated to reference the dependency
 policy above. Applied in T2.
 
-## Current work: T3 repair (review round 1)
+## Current work: T4 Harden (no new features)
+
+Status: **declared by USER instruction (2026-10-05); in progress. Do not start T5.**
+Branch: `t4-harden` (off the T3 head `a9aeb65`). Scope source: `docs/CLOSEOUT-SCOPE.md` T4 items 1-9, plus
+one small USER-added item (10).
+Note: `origin/RAG-SUM-GRAPH` was still at the T2 head `71ebc12` when T4 began; local `RAG-SUM-GRAPH` was
+fast-forwarded to `t3-rag-default` (not pushed) so T4 branches off T3.
+
+Non-goals: new features, new retrieval strategies, anything not listed. Guardrail: failing test first.
+
+Design decisions (T4-specific):
+- `verify_derived(original_event_text, derived_record) -> list[str]` lives in `conversation/provenance.py`
+  (overflow.py is at 373 of the 400-line limit). It returns problem codes; an empty list means verified.
+- Overflow switch: top-level config key `overflow_fallback` (bool, default true). Off: the oversized message
+  fails with today's visible `context_exceeded` message carrying the original numbers, and the reactive
+  backend context error is not retried.
+- Re-probe limits (named constants in `memory/cartridge.py`): first probe 5 s after a transient failure,
+  doubling each failed probe, capped at 300 s; at most one probe in flight; one embedding call per probe;
+  probes run on a background thread, so after the first failure a reply never waits on a failing embedder. While backing off the
+  vector tier is skipped and the keyword tier serves. A successful probe clears the fault and reconciles.
+- Absent-dependency pattern: `tests/support.blocked_modules(*names)` (in-process context manager that hides
+  modules and restores them), reused by one test per dependency.
+
+Acceptance bullet -> named test (all in `tests/test_t4_harden.py` unless noted):
+- 1 derived context never outlives the reply's window record across a store reopen:
+  `DerivedLifetimeTests.test_derived_context_does_not_outlive_its_reply_across_a_store_reopen`
+- 2 `verify_derived`: `VerifyDerivedTests.test_a_hand_built_record_verifies`,
+  `.test_a_real_derived_record_from_the_overflow_path_verifies`, `.test_wrong_hash_is_reported`,
+  `.test_wrong_range_is_reported`, `.test_tampered_text_is_reported`, `.test_a_missing_or_unknown_record_is_reported`
+- 3 overflow switch: `OverflowSwitchTests.test_default_is_on_and_is_written_to_a_new_config`,
+  `.test_a_non_boolean_is_refused`, `.test_off_gives_todays_context_exceeded_with_the_original_numbers`,
+  `.test_off_does_not_retry_a_backend_context_error`, `.test_build_app_passes_the_switch_to_the_runner`
+- 4 page derived block: `PageDerivedTests.test_page_shows_a_collapsed_derived_block_with_source_ranges_using_textcontent`,
+  `.test_the_page_script_parses` (needs node; skipped without it)
+- 5 README fallback usage and limits: `DocsTests.test_readme_explains_the_question_shape_limits_and_failure_behavior`
+- 6 memory bounded re-probe with backoff: `ReprobeTests.test_backoff_schedule_doubles_and_is_capped`,
+  `.test_no_vector_attempts_while_backing_off`, `.test_a_due_probe_runs_in_the_background_and_recovers`,
+  `.test_at_most_one_probe_runs_and_a_failed_probe_extends_the_backoff`,
+  `.test_status_reports_when_the_next_probe_is_due`, `.test_a_reply_does_not_wait_for_a_hung_embedder_while_backing_off`
+- 7 known limits documented: `DocsTests.test_known_limits_are_documented`
+- 8 dependency table and absent-dependency pattern: `DocsTests.test_dependency_policy_table_lists_every_dependency_and_its_backup`,
+  `AbsentDependencyTests.test_blocked_modules_hides_and_restores`, `.test_chroma_absent_falls_back_to_sqlite_vectors`,
+  `.test_embeddings_absent_falls_back_to_keyword_search`, `.test_ollama_unreachable_llamacpp_backend_still_chats`,
+  `.test_nvidia_smi_absent_shows_nothing`, `.test_tkinter_absent_cli_and_server_paths_still_work`
+- 9 audit of files this tranche touched: no test; the findings and fixes are recorded in the parking entry
+  and unfixed items in `docs/BACKLOG.md`.
+- 10 (USER-added) `--backlog` probe query and seed share "home number" so `served_by` shows the tier:
+  `ProbeScriptTests.test_backlog_query_and_seed_share_the_words_home_number`
+
+Progress:
+- [x] Declare T4; map every bullet to a named test
+- [ ] Failing tests written and shown red
+- [ ] Items 1-3 (provenance, switch)
+- [ ] Item 4 (page) and item 5-7 (docs)
+- [ ] Item 6 (re-probe)
+- [ ] Item 8 (dependency table, absent pattern)
+- [ ] Item 9 (audit) and item 10 (probe)
+- [ ] Both suite modes green; park as `T4:`; push `t4-harden`
+
+## Parked: T3 repair (review round 1; accepted by USER 2026-10-05)
 
 Status: **repair complete, parked as `T3 repair:`; awaiting USER acceptance. T4 not started.**
 Branch: `t3-rag-default`. Parking commit message prefix: `T3 repair:`.
