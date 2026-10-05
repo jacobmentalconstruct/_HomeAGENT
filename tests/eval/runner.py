@@ -212,6 +212,17 @@ def render_report(doc: dict) -> str:
         lines += ["", "| Model | Total seconds | Total model calls |", "|---|---|---|"]
         lines += [f"| {m} | {t['seconds']} | {t['calls']} |" for m, t in result["timings"].items()]
         lines.append("")
+    lines += ["## Silent wrong answers", "",
+              "Replies that completed normally, with no error and no warning, but whose answer did not contain the "
+              "expected key. A user would see a confident answer. \"Passage in derived text\" says whether extraction "
+              "had found the answer sentence (no: extraction found some passages but not the answer).", ""]
+    for variant in doc.get("thresholds", {}):
+        silent = [c for c in cells if c["variant"] == variant and c["state"] == "done" and not c["correct"]
+                  and c["fixture"] != "absent_fact"]
+        lines += [f"### {variant}", "", "| Model | Fixture | Passage in derived text | Answer given |", "|---|---|---|---|"]
+        lines += [f"| {c['model']} | {c['fixture']} | {'yes' if c['extraction_ok'] else 'no'} | "
+                  f"{' '.join(c['answer'].split()).replace('|', '/')[:120]} |" for c in silent] or ["| none | | | |"]
+        lines.append("")
     for variant in doc.get("thresholds", {}):
         lines += [f"## Cells: {variant}", "", "| Fixture | " + " | ".join(MODELS) + " |",
                   "|---|" + "---|" * len(MODELS)]

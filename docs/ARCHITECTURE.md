@@ -1,12 +1,13 @@
 # Architecture
 
-_HomeAGENT is one Python process (plus an optional control-panel window). The normal chat path uses the standard library; the optional persistent memory cartridge uses Chroma. This page explains how the pieces fit and why. The Python package is called `agent_harness`, and `harness.py` is its entry point.
+_HomeAGENT is one Python process (plus an optional control-panel window). The normal chat path uses the standard library; the memory cartridge prefers Chroma and works without it. This page explains how the pieces fit and why. The Python package is called `agent_harness`, and `harness.py` is its entry point.
 
 The project is developing toward context scaling. Today the generation path selects
 recent messages that fit, may add retrieved same-conversation excerpts, and, for one
 oversized final message of the shape *document, then `Question:`*, derives a bounded,
 source-linked extract (switch: `overflow_fallback`). It does not summarize old
-conversation history or route among preprocessing strategies. See [the project charter](PROJECT-CHARTER.md) for product stop conditions
+conversation history or route among preprocessing strategies, and no graph is built.
+Version 0.2.0 closes this prototype; see the CHANGELOG. See [the project charter](PROJECT-CHARTER.md) for product stop conditions
 and [the overflow architecture paper](CONTEXT-OVERFLOW-FALLBACK-ARCHITECTURE.md)
 for the originating proposal.
 
@@ -34,6 +35,8 @@ for the originating proposal.
 | `conversation/manager.py` | Conversations and their turns, rebuilt from the log. |
 | `conversation/generation.py` | One reply per worker thread, and the first-come queue per model. |
 | `conversation/window.py` | Which messages fit in the model's context. |
+| `conversation/overflow.py` | The overflow fallback: parse the `Question:` shape, extract source spans, reduce, compose the derived prompt. |
+| `conversation/provenance.py` | The prompt compositions and `verify_derived`, a pure check of a derived record against its source. |
 | `memory/cartridge.py` | Orchestrates the two memory tiers, reconciled from recorded turns and queried only within the active conversation; owns the status machine. |
 | `memory/chroma_store.py`, `memory/sqlite_store.py` | The two interchangeable vector stores. |
 | `memory/lexical_store.py` | The FTS5 keyword index: its own file, independent of the vector store. |
@@ -45,7 +48,7 @@ The code is layered so that each part has one owner. Interfaces use the conversa
 
 ## One source of truth: the event log
 
-Everything that happens is appended to a SQLite table (`conversation.created`, `turn.user`, `turn.assistant`, `generation.failed`). Nothing is edited or deleted. Each event also records who caused it: `USER` (a person), `AGENT` (the model's reply) or `SYSTEM` (the server, for example when a reply fails). The set of conversations, their titles and turns, and the last context window are all **rebuilt from the log at startup**. That keeps state simple, makes restarts safe, and means the record of what was said is never lost, even when old messages stop being sent to a model.
+Everything that happens is appended to a SQLite table (`conversation.created`, `turn.user`, `turn.assistant`, `generation.failed`). Nothing is edited or deleted. Each event also records who caused it: `USER` (a person), `AGENT` (the model's reply) or `SYSTEM` (the server, for example when a reply fails). The set of conversations, their titles and turns, and the last context window are all **rebuilt from the log at startup**. That keeps state simple, makes restarts safe, and means the record of what was said is never lost, even when old messages stop being sent to a model. When the overflow fallback is used, the derived text and its source ranges are stored with the reply that used them (the `turn.assistant` event's window record), in plaintext; the original `turn.user` event is never changed.
 
 The memory cartridge is enabled by default and indexes completed user and assistant turns as derived data. It has two retrieval tiers:
 
@@ -72,7 +75,7 @@ A reply does not depend on any client: if a phone drops off, the reply finishes 
 
 ## The context window
 
-A model reads a limited number of tokens. The budget for the prompt is `num_ctx` less a 10% margin, less room for the reply (`max_reply_tokens`). Each reply is sent the newest messages that fit, always including the newest user message. If that message alone cannot fit, the reply fails with `context_exceeded` and the model is never called.
+A model reads a limited number of tokens. The budget for the prompt is `num_ctx` less a 10% margin, less room for the reply (`max_reply_tokens`). Each reply is sent the newest messages that fit, always including the newest user message. If that message alone cannot fit, the overflow fallback handles it when it has the supported shape; otherwise the reply fails with `context_exceeded` and the model is never called. How large a message can be at each `num_ctx` is in CONFIGURATION, "Size limits for one message".
 
 Token counts are estimated from characters, then corrected: every reply returns the prompt size the model actually saw, and the estimator moves toward that ratio for that model. A higher characters-per-token ratio (fewer tokens) is believed slowly, so one odd report cannot make later estimates dangerously low. What each reply was sent is stored with it, so the estimator also relearns after a restart. The page shows a meter, and a marker where older messages stopped being sent.
 
@@ -127,7 +130,7 @@ a subprocess. Both make the module raise a real `ModuleNotFoundError`. The full 
 
 ## Prompt composition for oversized messages
 
-The derived prompt is the kept start and end of the document, the marked derived block, and the question, which is always last. Three compositions exist (`conversation/provenance.py`): `baseline` (10% of the prompt budget kept from each end; head, derived block, tail, question), `small_ends` (5% from each end; same order) and `block_by_question` (10%; head, tail, derived block, question). They were measured on five local models and eight fixtures (`docs/EVAL-RESULTS.md`, raw data `docs/eval-results.json`, reproduce with `python -B -m tests.eval.runner`). By the winner rule fixed in PLAN.md before the run, `small_ends` is the default. The margin is thin: against `baseline` it had one more correct answer and one more extraction pass out of 120 cells, and made 19 more model calls, from one run per cell. The composition is a constant, not a config key, and the derived record names the one that was used (`composition`, and a `role` on each source) so `verify_derived` can check any of them.
+The derived prompt is the kept start and end of the document, the marked derived block, and the question, which is always last. Three compositions exist (`conversation/provenance.py`): `baseline` (10% of the prompt budget kept from each end; head, derived block, tail, question), `small_ends` (5% from each end; same order) and `block_by_question` (10%; head, tail, derived block, question). They were measured on five local models and eight fixtures (`docs/EVAL-RESULTS.md`, raw data `docs/eval-results.json`, reproduce with `python -B -m tests.eval.runner`). `small_ends` is the default because the pre-declared winner rule (fixed in PLAN.md before the run) picked it on a near-tie: all three variants met the same two thresholds. The margin is thin: against `baseline` it had one more correct answer and one more extraction pass out of 120 cells, and made 19 more model calls, from one run per cell. The composition is a constant, not a config key, and the derived record names the one that was used (`composition`, and a `role` on each source) so `verify_derived` can check any of them.
 
 ## Known limits
 
@@ -136,5 +139,7 @@ The derived prompt is the kept start and end of the document, the marked derived
 - **Chunk and call caps.** At most eight chunks per extraction or reduction pass. Chunks overlap by about 12%, and each overlapped chunk counts toward the eight, so a document only a little over the limit can still fail. All passes share one model-call cap (16) and the generation deadline; reduction recurses at most four times. Over any cap, the reply fails with `context_exceeded`.
 - **Input shape.** Only a single oversized final user message that ends with a `Question:` section is supported. The fallback does not infer instructions from other messages or read file formats.
 - **Small models in the extraction step.** In the T5 eval (one run per cell, temperature 0, `num_ctx` 2048) the answer sentence reached the derived text in every fixture only for the 4B and 9B models. Under the default composition qwen2.5:1.5b and qwen3.5:2b each missed one fixture of eight (1.5b: nothing matched near the head/tail boundary, so the reply failed visibly; 2b: the single unpunctuated paragraph, which took 16 model calls) and qwen2.5:0.5b reached it in four of eight. The exit thresholds "100% for models of 1.5B and up" and "7/8 for 0.5B" were therefore missed and are recorded as named limitations, not tuned away. Final-answer correctness met its threshold for the 4B and 9B models (8/8 each), and the absent-fact fixture failed visibly for every model.
+- **Silent wrong answers from small models.** Small models can answer wrongly without any warning. When extraction finds some passages but not the answer, the reply still completes normally, and the model answers confidently from what it was given. In the eval this happened in four cells under the default composition: qwen2.5:0.5b on `unpunctuated_text` (answered "121.5 MHz"), qwen2.5:0.5b on `two_facts` (gave one of the two keys and said the other was not in the context), qwen3.5:2b on `unpunctuated_text` (answered "147.000") and qwen3.5:2b on `wrapped_text` (answered "04:30 sharp" when the asked-for day was "the third Thursday"; here extraction had found the answer, and the model answered only part of it). The `Derived context` block on the page shows what the model was given, which is the only signal. Use a model of 4B or larger for oversized messages; see [EVAL-RESULTS.md](EVAL-RESULTS.md), "Silent wrong answers".
+- **Size ceilings.** The 20,000-character message cap, the prompt budget and the chunk cap together decide when the fallback can run; at `num_ctx` 8,192 with a 256-token reply, or 16,384, it is never reached from the page. See CONFIGURATION, "Size limits for one message".
 - **Unpunctuated text and wrapped sentences.** One long paragraph with no punctuation is split at word boundaries, so a short fact can be cut across two chunks; a sentence hard-wrapped over two lines is two source units and both must be copied. These were the fixtures small models missed most.
 - **Memory.** Retrieval is limited to the active conversation. While the startup catch-up is still indexing, retrieval uses what is indexed so far, and a turn finished during the catch-up may reach the keyword index only when it ends.

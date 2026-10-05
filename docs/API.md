@@ -51,7 +51,7 @@ After that, one of these per line:
 | `failed` | `error` | `{"reason", "message", "partial_text"}`. |
 | `ping` | | Sent every 15 seconds while waiting, to keep the connection alive. |
 
-When T1 overflow extraction is used, `window.derived` has this shape:
+When the overflow fallback is used, `window.derived` has this shape:
 
 ```json
 {

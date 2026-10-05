@@ -76,6 +76,36 @@ Correctness for models below 4B (reported only): qwen2.5:0.5b 3/8, qwen2.5:1.5b 
 | qwen3.5:4b | 23.68 | 41 |
 | qwen3.5:9b | 25.03 | 41 |
 
+## Silent wrong answers
+
+Replies that completed normally, with no error and no warning, but whose answer did not contain the expected key. A user would see a confident answer. "Passage in derived text" says whether extraction had found the answer sentence (no: extraction found some passages but not the answer).
+
+### baseline
+
+| Model | Fixture | Passage in derived text | Answer given |
+|---|---|---|---|
+| qwen2.5:0.5b | unpunctuated_text | no | 121.5 MHz |
+| qwen2.5:0.5b | head_tail_boundary | no | F-05 |
+| qwen3.5:2b | wrapped_text | yes | 04:30 sharp |
+| qwen3.5:2b | unpunctuated_text | no | 147.000 |
+
+### small_ends
+
+| Model | Fixture | Passage in derived text | Answer given |
+|---|---|---|---|
+| qwen2.5:0.5b | unpunctuated_text | no | 121.5 MHz |
+| qwen2.5:0.5b | two_facts | no | The red cabinet key is 4821. The blue cabinet key is not specified in the given context. |
+| qwen3.5:2b | wrapped_text | yes | 04:30 sharp |
+| qwen3.5:2b | unpunctuated_text | no | 147.000 |
+
+### block_by_question
+
+| Model | Fixture | Passage in derived text | Answer given |
+|---|---|---|---|
+| qwen2.5:0.5b | unpunctuated_text | no | 121.5 MHz |
+| qwen2.5:0.5b | head_tail_boundary | no | 143 |
+| qwen3.5:2b | unpunctuated_text | no | 147.000 |
+
 ## Cells: baseline
 
 | Fixture | qwen2.5:0.5b | qwen2.5:1.5b | qwen3.5:2b | qwen3.5:4b | qwen3.5:9b |

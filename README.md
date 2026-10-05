@@ -78,7 +78,9 @@ A message that is too big for the model's context normally fails with `context_e
 
 - The original message is kept exactly as you sent it. Original messages are never deleted or edited, and the derived text is attached only to the reply that used it.
 - The page shows a collapsed **Derived context** block under the context meter: the text the model was sent, and the character range in your message that each piece came from. The `verify_derived` check in the code recomputes those ranges and the hash from your original message.
-- Reliability: the extraction step is a small model call. In the measured eval (`docs/EVAL-RESULTS.md`) the 4B and 9B models found the answer passage every time; the 1.5B and 2B models missed one of eight documents each and the 0.5B model missed half. Use a 4B or larger model for this.
+- **Small models can answer wrongly without any warning.** If extraction finds some passages but not the answer, the reply still completes normally and the model answers confidently from what it was given. In the measured eval ([docs/EVAL-RESULTS.md](docs/EVAL-RESULTS.md), "Silent wrong answers") this happened in four of the 40 runs under the default composition: qwen2.5:0.5b on `unpunctuated_text` (answered "121.5 MHz"), qwen2.5:0.5b on `two_facts` (gave one of the two keys and said the other was not in the context), qwen3.5:2b on `unpunctuated_text` (answered "147.000") and qwen3.5:2b on `wrapped_text` (answered "04:30 sharp" when the asked-for day was "the third Thursday"; here extraction had found the answer, and the model answered only part of it). The 4B and 9B models found the answer passage and answered correctly in all eight documents. Use a model of 4B or larger for oversized messages, and look at the **Derived context** block if an answer matters.
+- How the prompt is put together: the kept start and end are 5% of the prompt budget each (`small_ends`). That default was chosen by the pre-declared winner rule on a near-tie with the other two compositions; see [Architecture](docs/ARCHITECTURE.md).
+- Size: whether the fallback can run at all depends on `num_ctx`. With the default `num_ctx` 8,192 and 2,048-token replies only messages of roughly 18,600 to 20,000 characters reach it; at `num_ctx` 16,384 a message the server accepts always fits. See "Size limits for one message" in [Configuration](docs/CONFIGURATION.md).
 - Limits: the document must fit within eight extraction chunks per pass, at most 16 model calls and four reduction rounds are spent on one message, and kept passages are widened to a whole line or sentence. See "Known limits" in [Architecture](docs/ARCHITECTURE.md).
 - Failure behavior: if the message does not have the `Question:` shape, if nothing in the document matches, if a limit is reached, or if the result still does not fit, the reply fails visibly with `context_exceeded` and says why. Nothing is sent cut off, and later chat in the conversation carries on normally.
 - On the page, the **Document** button opens a Document box above the message box. Paste the document there, type your question in the message box, and Send: the page joins them as `document`, a new line, `Question: your question`, which is the shape above. The server sees an ordinary message and its limit of 20,000 characters still applies (the page tells you if you are over it).
@@ -96,6 +98,9 @@ The server uses plain HTTP with one shared token. That is reasonable on a home n
 - [HTTP API](docs/API.md): the endpoints the page and panel use
 - [Security](docs/SECURITY.md): what it protects, and what it does not
 - [Memory watchlist](docs/MEMORY_WATCHLIST.md): retrieval observations to revisit when symptoms appear
+- [Eval results](docs/EVAL-RESULTS.md): the overflow fallback measured on five local models
+- [Smoke matrix](docs/SMOKE-MATRIX.md): live checks recorded for the 0.2.0 release
+- [Changelog](CHANGELOG.md)
 
 ## Tests
 
@@ -103,7 +108,9 @@ The server uses plain HTTP with one shared token. That is reasonable on a home n
 python -B -m unittest discover -s tests
 ```
 
-The suite uses scripted fake model servers and a fake memory store, so it needs no GPU, Ollama, or Chroma. It runs in two modes automatically: with and without Chroma installed. It takes a couple of minutes because it exercises real timeouts and starts the real server as a child process.
+The suite uses scripted fake model servers and a fake memory store, so it needs no GPU, Ollama, or Chroma. To check the path without Chroma on a machine that has it, run it again with the environment variable `AGENT_HARNESS_BLOCK_MODULES=chromadb`. It takes about three minutes because it exercises real timeouts and starts the real server as a child process.
+
+Live checks that need a running Ollama are separate scripts: `python -B -m tests.live_memory_probe` (memory tiers; `--backlog 800` times the startup catch-up), `python -B tests/ollama_overflow_smoke.py MODEL` (one oversized message end to end) and `python -B -m tests.eval.runner` (the full eval).
 
 ## License
 
@@ -111,6 +118,6 @@ Released under the MIT License. See [LICENSE.md](LICENSE.md).
 
 ## Current implementation and project direction
 
-The current implementation provides authenticated local chat, a bounded recent-message window, same-conversation retrieval from an index derived from recorded turns (vector tier with a keyword fallback), and one bounded, source-traceable context-overflow fallback for a document followed by a `Question:` line. It does not summarize old conversation history or choose among multiple preprocessing strategies. The project direction is to measure that fallback, then stop and assess evidence before adding other transformations or routes. See [Project charter](docs/PROJECT-CHARTER.md) and [Project plan](PLAN.md).
+Version 0.2.0 provides authenticated local chat, a bounded recent-message window, same-conversation retrieval from an index derived from recorded turns (vector tier with a keyword fallback), and one bounded, source-traceable context-overflow fallback for a document followed by a `Question:` line, measured on five local models. It does not summarize old conversation history, build a graph, or choose among multiple preprocessing strategies. This prototype is complete; further transformations or routes wait for evidence that they are needed. See [Project charter](docs/PROJECT-CHARTER.md) and [Project plan](PLAN.md).
 
-The llama.cpp adapter is covered by tests against a scripted fake server and has not yet been run against a real llama.cpp server. Runtime files live in `runtime/` next to the program (`config.json`, `harness.sqlite3`, and, when enabled, `memory/`); they contain local settings and conversation data and are ignored by Git.
+The llama.cpp adapter is covered by tests against a scripted fake server and has not yet been run against a real llama.cpp server. Runtime files live in `runtime/` next to the program (`config.json`, `harness.sqlite3`, and the derived memory index in `memory/`); they contain local settings and conversation data and are ignored by Git.

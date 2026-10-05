@@ -4,7 +4,7 @@ Settings live in `runtime/config.json`, created on first run with defaults and a
 
 If a value is invalid, the server refuses to start and says which one. (`keep_alive` is passed to Ollama as written, so Ollama judges it.) The file is written with every setting the first time the program runs, so a later version's new defaults do not change an existing file; delete a key to get its default back.
 
-Ollama chat requests set `truncate=false`, so Ollama rejects rather than silently dropping content if a request exceeds the model context. The harness selects recent context within its own prompt budget and applies the bounded T1 fallback to supported oversized newest messages. Other oversized message shapes fail visibly. A request that fits the harness budget is sent normally.
+Ollama chat requests set `truncate=false`, so Ollama rejects rather than silently dropping content if a request exceeds the model context. The harness selects recent context within its own prompt budget and applies the overflow fallback (`overflow_fallback`, below) to supported oversized newest messages. Other oversized message shapes fail visibly. A request that fits the harness budget is sent normally.
 
 ## Settings
 
@@ -23,6 +23,40 @@ Ollama chat requests set `truncate=false`, so Ollama rejects rather than silentl
 | `keep_alive` | `"3m"` | How long Ollama keeps a model in GPU memory after its last reply. A shorter value, such as `"1m"`, frees the GPU sooner. |
 | `overflow_fallback` | `true` | When one message is too big for the model, find the passages that answer its final `Question:` line and send those instead (see the README). `false`: the message fails with the plain `context_exceeded` message, and a backend context error is not retried. Restart after changing it. |
 | `memory` | enabled | Local retrieval cartridge; enabled by default on new installs. See below. |
+
+## Size limits for one message
+
+Three limits decide what happens to one large message:
+
+1. **The message cap.** The server accepts at most 20,000 characters of message text (and the page refuses more before
+   sending). This applies to the Document + Question fields too, because they send one message.
+2. **The prompt budget.** A message is sent as it is when it fits the prompt budget (`num_ctx` less a 10% margin, less
+   `max_reply_tokens`). Only a message that does not fit goes to the overflow fallback. So the fallback can only be
+   reached for messages between the size that fits and 20,000 characters.
+3. **The chunk cap.** The document part the fallback reads (everything between the kept start and end) must fit eight
+   extraction chunks of 40% of `num_ctx` each, overlapping by about 12%. In characters that is roughly
+   20,200 at `num_ctx` 2,048, 40,400 at 4,096, 80,700 at 8,192 and 161,500 at 16,384. At 2,048 it is about the same
+   as the message cap; above that the 20,000-character cap is the tighter limit.
+
+Characters below are estimates from the code at 3.5 characters per token, the value used before a model has been
+measured, for a single message with no system prompt. Once a model's real ratio is learned the numbers move (Qwen models
+usually measure more characters per token, which raises them), and a system prompt and earlier turns take some budget.
+
+| `num_ctx` | `max_reply_tokens` | Prompt budget (tokens) | Largest message that fits (characters) | Messages that can reach the fallback |
+|---|---|---|---|---|
+| 2,048 | 256 | 1,587 | 5,505 | 5,506 to 20,000 characters |
+| 4,096 | 256 | 3,430 | 11,956 | 11,957 to 20,000 characters |
+| 4,096 | 2,048 | 1,638 | 5,684 | 5,685 to 20,000 characters |
+| 8,192 | 256 | 7,116 | 24,857 | never: every message the server accepts already fits |
+| 8,192 | 2,048 | 5,324 | 18,585 | 18,586 to 20,000 characters (the defaults) |
+| 16,384 | 256 | 14,489 | 50,662 | never: every message the server accepts already fits |
+| 16,384 | 2,048 | 12,697 | 44,390 | never: every message the server accepts already fits |
+
+In short: at `num_ctx` 2,048 or 4,096 the fallback covers most of the range up to 20,000 characters. At the default
+8,192 with a 2,048-token reply it covers only about the last 1,400 characters below the cap. At 8,192 with a 256-token
+reply, and at 16,384, a message the server accepts always fits, so the fallback is never needed from the page. The one
+exception is Ollama's own count: if Ollama measures more tokens than the estimate and refuses the request, the
+Ollama-only reactive retry still runs the fallback.
 
 ## Conversation memory
 
