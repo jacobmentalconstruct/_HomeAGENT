@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. v0.2.0 tagged (T6). T7 audit fixes declared on t7-audit-fixes, awaiting USER approval; no code changed yet.
+3. v0.2.0 tagged (T6). T7 audit fixes approved (USER, 2026-10-05) and in progress on t7-audit-fixes.
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -158,9 +158,13 @@ The charter invariant "The local privacy boundary and optional-dependency behavi
 force unless a specific future tranche changes them" will be updated to reference the dependency
 policy above. Applied in T2.
 
-## Current work: T7 Pre-merge audit fixes (declared; awaiting USER approval)
+## Current work: T7 Pre-merge audit fixes
 
-Status: **declared 2026-10-05; awaiting USER approval. Nothing is implemented until approval.**
+Status: **approved by USER as declared (2026-10-05), with three refinements; in progress.**
+Refinements recorded: (1) the control-character status test first forces the vector tier down so the keyword tier is
+serving; (2) the version test asserts `__version__` equals the newest CHANGELOG heading; (3) the atomic-write failure
+tests also assert no temporary file is left behind. The USER independently confirmed the eval fixtures have no closing
+quote or bracket after sentence ends (no eval re-run); the boundary comparison is still recorded in the parking entry.
 Branch: `t7-audit-fixes` (off `RAG-SUM-GRAPH` at `fd7c60c`, the `v0.2.0` tag). Park as `T7:`; tag `v0.2.1`;
 `v0.2.0` is not moved. The USER merges to `main`.
 
@@ -207,7 +211,7 @@ Acceptance bullet -> named test or artifact (tests in `tests/test_t7_audit_fixes
 
 Progress:
 - [x] Declare T7; map every bullet
-- [ ] USER approval
+- [x] USER approval (with the three refinements above)
 - [ ] Failing tests written and shown red
 - [ ] Items 1-5
 - [ ] Version, CHANGELOG, both suite modes, fresh clone

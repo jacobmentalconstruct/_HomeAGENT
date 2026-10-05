@@ -42,8 +42,9 @@ def chunk_ceiling(num_ctx):
 
 
 class ReleaseTests(unittest.TestCase):
-    def test_version_is_0_2_0(self):
-        self.assertEqual(agent_harness.__version__, "0.2.0")
+    def test_version_matches_the_newest_changelog_heading(self):
+        newest = re.search(r"(?m)^## (\d+\.\d+\.\d+)", read("CHANGELOG.md")).group(1)
+        self.assertEqual(agent_harness.__version__, newest)
 
     def test_changelog_has_a_0_2_0_entry(self):
         changelog = read("CHANGELOG.md")
