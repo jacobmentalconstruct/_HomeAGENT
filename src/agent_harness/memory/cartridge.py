@@ -165,15 +165,18 @@ class ConversationMemory:
                 and e.payload.get("generation_id") in completed
                 and isinstance(e.payload.get("text"), str) and e.payload["text"].strip()]
 
-    def reconcile(self, events: list[Event], max_events: int | None = None) -> None:
+    def reconcile(self, events: list[Event], max_events: int | None = None, wait: bool = True) -> None:
         """Idempotently index completed turns missing from either tier. An embedding failure is recorded
-        as a tier fault, never raised, and never stops the lexical index."""
-        if not self.enabled:
+        as a tier fault, never raised, and never stops the lexical index. With wait=False, indexing is
+        skipped when another reconcile (the background catch-up) is already running."""
+        if not self.enabled or not self._lock.acquire(blocking=wait):
             return
-        with self._lock:
+        try:
             completed = self._completed_turn_events(events)
             self._reconcile_lexical(completed)
             self._reconcile_vector(completed, max_events)
+        finally:
+            self._lock.release()
 
     def _reconcile_lexical(self, completed: list[Event]) -> None:
         if self._lexical is None or self._lexical_fault is not None:
@@ -237,7 +240,7 @@ class ConversationMemory:
         if not self.enabled:
             return []
         try:
-            self.reconcile(events, max_events=RECONCILE_BATCH)
+            self.reconcile(events, max_events=RECONCILE_BATCH, wait=False)  # never queue behind the catch-up
         except Exception:
             pass
         if self._vector_usable() and self._store.ids():

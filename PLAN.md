@@ -234,6 +234,22 @@ Limitations recorded:
 - A transient embedding failure is retried on every reply (and every background reconcile) with no backoff; bounded re-probe stays in T4 (BACKLOG, MEMORY_WATCHLIST item 3).
 - The lexical `distance` is not comparable to a vector distance; documented in API.md.
 
+### T3 repair 2 (review of T3 repair: accepted except one defect)
+
+Defect: `reconcile()` held the lock across every embedding batch, so `retrieve()` queued behind the
+startup background catch-up (reviewer measured 5.4 s with 400 turns at 0.4 s/batch).
+Fix: `reconcile(..., wait=False)` acquires the lock non-blockingly; `retrieve()` uses it, skips its own
+indexing when the catch-up holds the lock, and queries what is indexed (keyword index when the vector
+index is empty). The background catch-up keeps the blocking acquire.
+Test (written first, red at 2.81 s): `tests/test_t3_repair.py`
+`RetrievalDoesNotWaitForCatchUpTests.test_retrieve_returns_within_about_one_batch_while_the_background_catch_up_runs`
+(0.4 s/batch embedder, 6 batches; retrieve returns in under 2 batch times, serves `method: lexical`;
+catch-up still finishes and indexes everything).
+Evidence (2026-10-05): `python -B -m unittest discover -s tests` 282 tests OK (skipped 2), 158.3 s;
+`AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest discover -s tests` 282 tests OK (skipped 2), 159.6 s.
+Not done: no live-Ollama timing of the fix; the timing test uses a fake slow embedder.
+T4 not started.
+
 ## Superseded parking entry: T3 (first pass, not accepted)
 
 Status: **complete; awaiting USER acceptance.**

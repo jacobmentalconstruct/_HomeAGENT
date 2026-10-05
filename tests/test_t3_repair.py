@@ -6,6 +6,7 @@ import json
 import sqlite3
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -149,6 +150,36 @@ class BothTiersFailTests(MemoryCase):
         self.assertTrue(found)
         self.assertEqual(memory.status()["state"], "ready")
         self.assertEqual(memory.status()["failed_retrievals"], 1)
+
+
+class RetrievalDoesNotWaitForCatchUpTests(MemoryCase):
+    def test_retrieve_returns_within_about_one_batch_while_the_background_catch_up_runs(self):
+        from agent_harness.memory.cartridge import BATCH_SIZE
+        delay = 0.4
+        batches = 6
+        n = BATCH_SIZE * batches
+        evs = [event(i, "turn.user" if i % 2 else "turn.assistant", "a", f"g{(i + 1) // 2}", f"text {i}")
+               for i in range(1, n + 1)]
+        started = threading.Event()
+
+        def slow_embed(texts):
+            started.set()
+            time.sleep(delay)
+            return embed(texts)
+
+        memory = self.make("sqlite", embed=slow_embed)
+        thread = memory.reconcile_in_background(evs)
+        self.assertTrue(started.wait(5))  # the catch-up is now inside its first slow batch
+        begun = time.monotonic()
+        found = memory.retrieve("text", "a", evs)
+        elapsed = time.monotonic() - begun
+        self.assertLess(elapsed, 2 * delay + 0.3, f"retrieve waited {elapsed:.2f}s behind the catch-up")
+        self.assertLess(elapsed, delay * (batches - 1))  # a blocked retrieve would wait for the rest
+        self.assertTrue(found)
+        self.assertEqual({item["method"] for item in found}, {"lexical"})  # served from the keyword index
+        thread.join(30)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(memory.status()["indexed"], n)
 
 
 class IndependentLexicalIndexTests(MemoryCase):
