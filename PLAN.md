@@ -248,7 +248,7 @@ Deferred list (do not build without new evidence and a new, approved tranche):
 - Graph construction and rehydration.
 - Larger-model routing for the overflow fallback (for example: extract with a small model, answer with a larger one).
 - Relevance-cutoff tuning or query-composition changes (T5 numbers did not show them hurting).
-- Hybrid vector + lexical ranking.
+- Hybrid ranking (vector + lexical).
 - Cross-conversation retrieval.
 - New input formats for the overflow fallback, beyond the `Question:` shape.
 - Automatic strategy learning; arbitrary plugin registries; multi-model fallback for overflow; cloud services or sync.
