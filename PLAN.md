@@ -111,10 +111,11 @@ complete. Full T3–T6 scopes, non-goals, and exit criteria are in
 - [x] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
   `sqlite` selection never imports chromadb (asserted); Chroma behavior unchanged; benchmark recorded;
   parked on `t2-store-seam`. (Accepted by USER 2026-10-05)
-- [ ] **T3** Full suite green both ways; memory default-on for new configs; three-tier state machine
-  (ready/degraded/disabled); FTS5 lexical tier maintained and tested; live check on this machine:
-  Chroma importable, chromadb blocked, and embedding model unavailable; docs updated; parked on
-  `t3-rag-default`.
+- [x] **T3** Full suite green both ways; memory default-on for new configs; three-tier state machine
+  (ready/degraded/disabled); FTS5 lexical tier maintained and tested; both modes verified:
+  `python -B -m unittest tests.test_memory` → 31 OK (chromadb present);
+  `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest tests.test_memory` → 31 OK (absent);
+  full suite: 255 tests, 2 skipped, 0 failures; docs updated; parked on `t3-rag-default`.
 - [ ] **T4** Full suite green; `verify_derived` pure function tested; overflow config switch tested;
   page shows derived block (textContent only); memory bounded re-probe tested; dependency table in
   ARCHITECTURE; parked on `t4-harden`.
@@ -157,10 +158,16 @@ The charter invariant "The local privacy boundary and optional-dependency behavi
 force unless a specific future tranche changes them" will be updated to reference the dependency
 policy above. Applied in T2.
 
-## Current work: T3 RAG Default, Graceful States, Lexical Tier
+## Parked: T3 RAG Default, Graceful States, Lexical Tier
 
-Status: **approved by USER (2026-10-05).**
+Status: **complete; awaiting USER acceptance.**
 Branch: `t3-rag-default` (off `RAG-SUM-GRAPH`).
+
+Evidence:
+- Chromadb-present mode: `python -B -m unittest tests.test_memory` → 31/31 OK
+- Chromadb-absent mode: `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest tests.test_memory` → 31/31 OK
+- Full suite: `python -B -m unittest discover -s tests` → 255 tests, 2 skipped, 0 failures (2026-10-05)
+- Commits: `8adac0e` (failing tests), `2ccf646` (requirements rename, default-on), `cf74058` (FTS5, status machine, bounded reconcile, model_checker), `02af0ee` (validation fix, chroma close, docs)
 
 Expected outcome: conversation memory is on by default for new configs; three-tier state machine
 with machine-readable reasons; FTS5 lexical tier always maintained; full suite passes with chromadb
@@ -198,17 +205,17 @@ Acceptance → named test (every bullet maps to at least one test):
 - `enabled=false` → no store opened: already in `test_disabled_memory_does_no_index_work`
 
 Progress:
-- [ ] Tick T2 DoD; fast-forward RAG-SUM-GRAPH; create branch; declare T3 in PLAN.md
-- [ ] Write all failing tests (guardrail: new behavior needs failing test first)
-- [ ] Scope 1: default-on (`DEFAULTS["memory"]["enabled"] = True`)
-- [ ] Scope 5: rename requirements-rag.txt → requirements.txt
-- [ ] Scope 2+3: machine-readable reasons, fix text, model_checker, tier field in status
-- [ ] Scope 7: FTS5 table in SqliteStore; reconcile and query; sanitize; method field
-- [ ] Scope 6: bounded reconcile per retrieve; post-reply background thread in generation.py
-- [ ] Scope 4: assert `enabled=false` opens nothing (extend existing disabled test)
-- [ ] Scope 8: run both modes; verify no static imports break
-- [ ] Scope 9: docs (README, ARCHITECTURE, CONFIGURATION, SECURITY, API, charter)
-- [ ] Park T3 with evidence
+- [x] Tick T2 DoD; fast-forward RAG-SUM-GRAPH; create branch; declare T3 in PLAN.md
+- [x] Write all failing tests (guardrail: new behavior needs failing test first)
+- [x] Scope 1: default-on (`DEFAULTS["memory"]["enabled"] = True`)
+- [x] Scope 5: rename requirements-rag.txt → requirements.txt
+- [x] Scope 2+3: machine-readable reasons, fix text, model_checker, tier field in status
+- [x] Scope 7: FTS5 table in SqliteStore; reconcile and query; sanitize; method field
+- [x] Scope 6: bounded reconcile per retrieve; post-reply background thread in generation.py
+- [x] Scope 4: assert `enabled=false` opens nothing (extend existing disabled test)
+- [x] Scope 8: run both modes; verify no static imports break
+- [x] Scope 9: docs (README, ARCHITECTURE, CONFIGURATION, SECURITY, API, charter)
+- [x] Park T3 with evidence
 
 ## Parked: T2 Store Seam + SQLite Fallback
 
