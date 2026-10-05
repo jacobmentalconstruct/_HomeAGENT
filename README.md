@@ -2,7 +2,7 @@
 
 A local chat harness for experimenting with context scaling around language models.
 
-Run it on the PC that has your GPU, then chat with it from any device on your home network, such as a phone or a laptop, in a plain web page. Models run through [Ollama](https://ollama.com) (the tested path) or a [llama.cpp](https://github.com/ggml-org/llama.cpp) server (supported, but so far tested only against a scripted fake), on the same machine. The program itself never contacts the internet. Ordinary chat needs **only Python's standard library**. The optional conversation memory cartridge needs Chroma; see [Configuration](docs/CONFIGURATION.md).
+Run it on the PC that has your GPU, then chat with it from any device on your home network, such as a phone or a laptop, in a plain web page. Models run through [Ollama](https://ollama.com) (the tested path) or a [llama.cpp](https://github.com/ggml-org/llama.cpp) server (supported, but so far tested only against a scripted fake), on the same machine. The program itself never contacts the internet. Ordinary chat needs **only Python's standard library**. Conversation memory works with no extra packages too; Chroma is recommended for its vector tier (see [Configuration](docs/CONFIGURATION.md)).
 
 ## What you get
 
@@ -72,6 +72,16 @@ python harness.py smoke <backend:model> "<prompt>" [--max-tokens N]
 
 A model can only read so much at once (its context). Each reply is sent the newest messages that fit, using a token estimate that corrects itself from the counts the model reports back. A message that is too long to fit fails with a clear error instead of being silently cut. Nothing is ever deleted: older messages stay in the record, and the page marks where they stopped being sent. See [Architecture](docs/ARCHITECTURE.md).
 
+## Very large messages
+
+A message that is too big for the model's context normally fails with `context_exceeded`. There is one supported exception: **a document, followed by a final line that starts with `Question:`**. For that shape the harness asks the model to copy out, word for word, the passages of the document that bear on the question. It then sends the start and end of the document, those passages and your question, instead of the whole document. The model is only used to select source text; nothing it writes is paraphrased into the context.
+
+- The original message is kept exactly as you sent it. Original messages are never deleted or edited, and the derived text is attached only to the reply that used it.
+- The page shows a collapsed **Derived context** block under the context meter: the text the model was sent, and the character range in your message that each piece came from. The `verify_derived` check in the code recomputes those ranges and the hash from your original message.
+- Limits: the document must fit within eight extraction chunks per pass, at most 16 model calls and four reduction rounds are spent on one message, and kept passages are widened to a whole line or sentence. See "Known limits" in [Architecture](docs/ARCHITECTURE.md).
+- Failure behavior: if the message does not have the `Question:` shape, if nothing in the document matches, if a limit is reached, or if the result still does not fit, the reply fails visibly with `context_exceeded` and says why. Nothing is sent cut off, and later chat in the conversation carries on normally.
+- To turn the fallback off, set `"overflow_fallback": false` in `runtime/config.json` and restart. Oversized messages then fail with the plain `context_exceeded` message.
+
 ## Security in short
 
 The server uses plain HTTP with one shared token. That is reasonable on a home network you trust, and it is **not** meant to be exposed to the internet. Do not forward its port on your router. Read [Security](docs/SECURITY.md) before changing the defaults.
@@ -99,6 +109,6 @@ Released under the MIT License. See [LICENSE.md](LICENSE.md).
 
 ## Current implementation and project direction
 
-The current implementation provides authenticated local chat, a bounded recent-message window, and optional same-conversation retrieval from a Chroma index derived from recorded turns. It does not yet perform overflow summarization or choose among multiple preprocessing strategies. The project direction is to test a small, source-traceable context-overflow fallback in the existing generation path, then stop and assess evidence before adding other transformations or routes. See [Project charter](docs/PROJECT-CHARTER.md) and [Project plan](PLAN.md).
+The current implementation provides authenticated local chat, a bounded recent-message window, same-conversation retrieval from an index derived from recorded turns (vector tier with a keyword fallback), and one bounded, source-traceable context-overflow fallback for a document followed by a `Question:` line. It does not summarize old conversation history or choose among multiple preprocessing strategies. The project direction is to measure that fallback, then stop and assess evidence before adding other transformations or routes. See [Project charter](docs/PROJECT-CHARTER.md) and [Project plan](PLAN.md).
 
 The llama.cpp adapter is covered by tests against a scripted fake server and has not yet been run against a real llama.cpp server. Runtime files live in `runtime/` next to the program (`config.json`, `harness.sqlite3`, and, when enabled, `memory/`); they contain local settings and conversation data and are ignored by Git.

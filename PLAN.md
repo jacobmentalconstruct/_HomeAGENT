@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. T3 accepted (USER, 2026-10-05). T4 Harden declared on t4-harden (off the T3 head); T5 not started.
+3. T3 accepted (USER, 2026-10-05). T4 Harden parked on t4-harden, awaiting USER acceptance; T5 not started.
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -116,7 +116,7 @@ complete. Full T3–T6 scopes, non-goals, and exit criteria are in
   `python -B -m unittest tests.test_memory` → 31 OK (chromadb present);
   `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest tests.test_memory` → 31 OK (absent);
   full suite after repair: 281 tests, 2 skipped, 0 failures in both modes (see T3 repair evidence); live three-condition check recorded; docs updated; parked on `t3-rag-default`.
-- [ ] **T4** Full suite green; `verify_derived` pure function tested; overflow config switch tested;
+- [x] **T4** (parked; awaiting USER acceptance) Full suite green; `verify_derived` pure function tested; overflow config switch tested;
   page shows derived block (textContent only); memory bounded re-probe tested; dependency table in
   ARCHITECTURE; parked on `t4-harden`.
 - [ ] **T5** Eight eval fixtures run against five models; results in `docs/`; prompt-composition
@@ -160,7 +160,7 @@ policy above. Applied in T2.
 
 ## Current work: T4 Harden (no new features)
 
-Status: **declared by USER instruction (2026-10-05); in progress. Do not start T5.**
+Status: **parked as `T4:`; awaiting USER acceptance. T5 not started.**
 Branch: `t4-harden` (off the T3 head `a9aeb65`). Scope source: `docs/CLOSEOUT-SCOPE.md` T4 items 1-9, plus
 one small USER-added item (10).
 Note: `origin/RAG-SUM-GRAPH` was still at the T2 head `71ebc12` when T4 began; local `RAG-SUM-GRAPH` was
@@ -196,7 +196,8 @@ Acceptance bullet -> named test (all in `tests/test_t4_harden.py` unless noted):
 - 6 memory bounded re-probe with backoff: `ReprobeTests.test_backoff_schedule_doubles_and_is_capped`,
   `.test_no_vector_attempts_while_backing_off`, `.test_a_due_probe_runs_in_the_background_and_recovers`,
   `.test_at_most_one_probe_runs_and_a_failed_probe_extends_the_backoff`,
-  `.test_status_reports_when_the_next_probe_is_due`, `.test_a_reply_does_not_wait_for_a_hung_embedder_while_backing_off`
+  `.test_status_reports_when_the_next_probe_is_due`, `.test_a_reply_does_not_wait_for_a_hung_embedder_while_backing_off`,
+  `.test_a_successful_probe_does_not_reset_the_backoff_while_the_store_keeps_failing` (added by the item-9 audit)
 - 7 known limits documented: `DocsTests.test_known_limits_are_documented`
 - 8 dependency table and absent-dependency pattern: `DocsTests.test_dependency_policy_table_lists_every_dependency_and_its_backup`,
   `AbsentDependencyTests.test_blocked_modules_hides_and_restores`, `.test_chroma_absent_falls_back_to_sqlite_vectors`,
@@ -209,13 +210,45 @@ Acceptance bullet -> named test (all in `tests/test_t4_harden.py` unless noted):
 
 Progress:
 - [x] Declare T4; map every bullet to a named test
-- [ ] Failing tests written and shown red
-- [ ] Items 1-3 (provenance, switch)
-- [ ] Item 4 (page) and item 5-7 (docs)
-- [ ] Item 6 (re-probe)
-- [ ] Item 8 (dependency table, absent pattern)
-- [ ] Item 9 (audit) and item 10 (probe)
-- [ ] Both suite modes green; park as `T4:`; push `t4-harden`
+- [x] Failing tests written and shown red (commit `36ca63c`; import errors before implementation)
+- [x] Items 1-3 (provenance, switch)
+- [x] Item 4 (page) and items 5-7 (docs)
+- [x] Item 6 (re-probe)
+- [x] Item 8 (dependency table, absent pattern)
+- [x] Item 9 (audit) and item 10 (probe)
+- [x] Both suite modes green; park as `T4:`; push `t4-harden`
+
+Evidence (2026-10-05, this machine):
+- `python -B -m unittest discover -s tests` (Chroma present): 314 tests, OK, 2 skipped, 166.8 s.
+- `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest discover -s tests` (Chroma blocked): 314 tests, OK, 2 skipped, 167.2 s.
+- Already-passing-at-first-run tests (hardening tests of existing behavior, not new behavior): bullet 1
+  `DerivedLifetimeTests`, and the page and verify tests that exercise existing records. Everything that adds
+  behavior (verify_derived, switch, derived block, re-probe, blocked_modules, gui message, probe constants,
+  docs) was red first.
+- `verify_derived` was also run against real overflow records produced by the fake-backend fixtures
+  (middle-document and three-fact documents): both verify with no problems.
+- Page derived block: exercised with `node` and a minimal fake DOM (collapsed `details`, text set as text,
+  ranges listed, no block without a derived record) and `node --check` on the script. Not viewed in a real
+  browser.
+- Live, real Ollama (`nomic-embed-text:latest`): `python -B -m tests.live_memory_probe --backlog 400`:
+  `retrieve()` 0.003 s, `served_by: ["lexical"]` with 0 of 400 vectors indexed at 0.5 s, 5.31 s catch-up,
+  afterwards tier `vector`, methods `["vector"]`. The shared "home number" query/seed now makes the
+  keyword tier answer, so `served_by` shows the tier (item 10).
+  `python -B -m tests.live_memory_probe --model no-such-embed-model`: ready, tier lexical, reason
+  `embedding_model_missing`, served by lexical (the first retrieve starts the background probe).
+- Not run: no real-browser view of the derived block; no real llama.cpp server; the re-probe was tested with a
+  fake clock and fake embedders, not by stopping and restarting a real Ollama.
+
+Audit (item 9: files this tranche touched: cartridge.py, generation.py, config.py, app.py, cli.py, page.html,
+provenance.py, overflow.py, support.py, live_memory_probe.py):
+- Fixed, confirmed by a failing test first: a successful probe reset the backoff, so a vector store that kept
+  failing while the embedder worked would have been re-probed every 5 s. The backoff now resets only on a real
+  indexed batch or query.
+- Fixed: the page's derived block would throw on a record without `char_range`; it now shows "range unknown".
+- Logged in `docs/BACKLOG.md`, not fixed: synchronous embedding-model check at `serve` startup; one background
+  reconcile thread per reply queuing on the lock during a long catch-up; the probe uses one throwaway text.
+- Changed beyond the listed items, small and inside the dependency-policy rule (an actionable message): the `gui`
+  command prints how to run `serve` when tkinter is missing, instead of a traceback.
 
 ## Parked: T3 repair (review round 1; accepted by USER 2026-10-05)
 

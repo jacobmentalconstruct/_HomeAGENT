@@ -32,6 +32,8 @@ DEFAULTS = {
     "system_prompt": "You are a helpful assistant running privately on the user's home network. Be concise and honest.",
     # How long Ollama keeps a model in GPU memory after its last reply. Shorter frees the GPU sooner for other uses.
     "keep_alive": "3m",
+    # When one message is too big for the model, find the passages that answer its final "Question:" line. Off: it just fails.
+    "overflow_fallback": True,
     "memory": {"enabled": True, "store": "chroma", "strict": False,
                "embedding_backend": "ollama", "embedding_model": "nomic-embed-text", "top_k": 4},
 }
@@ -70,6 +72,7 @@ class Config:
     default_model: str
     system_prompt: str
     keep_alive: str
+    overflow_fallback: bool
     memory: MemoryConfig
 
 
@@ -204,6 +207,8 @@ def _build(merged: dict) -> Config:
     if reply > largest_reply(num_ctx):
         raise ConfigError(f"'max_reply_tokens' ({reply}) is too large for 'num_ctx' ({num_ctx}): it must be at most "
                           f"{largest_reply(num_ctx)} so the prompt keeps room.")
+    if not isinstance(merged["overflow_fallback"], bool):
+        raise ConfigError(f"'overflow_fallback' must be true or false, got {merged['overflow_fallback']!r}.")
     memory_raw = merged["memory"]
     if not isinstance(memory_raw, dict):
         raise ConfigError("'memory' must be an object.")
@@ -232,5 +237,5 @@ def _build(merged: dict) -> Config:
             raise ConfigError("'memory.embedding_backend' must name a configured Ollama backend.")
     return Config(host, port, merged["require_token"], _token(merged["token"]), backends, timeouts, num_ctx, reply,
                   _text("default_model", merged["default_model"]), _text("system_prompt", merged["system_prompt"]),
-                  _text("keep_alive", merged["keep_alive"]),
+                  _text("keep_alive", merged["keep_alive"]), merged["overflow_fallback"],
                   MemoryConfig(enabled, store, strict, embed_backend, embed_model, top_k))

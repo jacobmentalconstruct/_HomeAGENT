@@ -20,6 +20,9 @@ from tests import support  # noqa: F401
 from agent_harness.app import build_app
 from agent_harness.locations import Locations
 
+BACKLOG_SEED = "Turn {i}: the home number is {i}, near Cedar Rapids."
+BACKLOG_QUERY = "What is the home number?"  # shares "home number" with the seed so the keyword tier can match
+
 TURNS = [("turn.user", "USER", "Where is my home?"),
          ("turn.assistant", "AGENT", "Your home is in Cedar Rapids."),
          ("turn.user", "USER", "What colour is my office door?"),
@@ -43,7 +46,7 @@ def main() -> int:
         seeding = build_app(loc)  # without memory: the log is written, nothing is indexed
         turns = TURNS if not args.backlog else [
             ("turn.user" if i % 2 == 0 else "turn.assistant", "USER" if i % 2 == 0 else "AGENT",
-             f"Turn {i}: the home number is {i}, near Cedar Rapids.") for i in range(args.backlog)]
+             BACKLOG_SEED.format(i=i)) for i in range(args.backlog)]
         for index in range(0, len(turns), 2):
             for kind, actor, text in turns[index:index + 2]:
                 seeding.events.append(kind, actor, {"text": text, "generation_id": f"g{index}"}, "c1")
@@ -54,13 +57,13 @@ def main() -> int:
             if args.backlog:
                 time.sleep(0.5)
                 asked = time.monotonic()
-                found = app.memory.retrieve("Where do I live?", "c1", app.events.read())
+                found = app.memory.retrieve(BACKLOG_QUERY, "c1", app.events.read())
                 took = time.monotonic() - asked
                 during = app.memory.status()
                 for thread in list(app.memory._threads):
                     thread.join(600)
                 caught_up = time.monotonic() - began
-                again = app.memory.retrieve("Where do I live?", "c1", app.events.read())
+                again = app.memory.retrieve(BACKLOG_QUERY, "c1", app.events.read())
                 print(json.dumps({
                     "backlog_turns": args.backlog, "retrieve_seconds": round(took, 3),
                     "served_by": sorted({item["method"] for item in found}),

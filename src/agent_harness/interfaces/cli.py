@@ -148,8 +148,12 @@ def main(argv: list[str]) -> int:
     smoke.add_argument("--max-tokens", type=_positive_int, default=None)
     args = parser.parse_args(argv)
     if args.command == "gui":  # a window that runs the server as a child process; it never opens the database
-        from .gui import run  # tkinter is only needed for this command
-
+        try:
+            from .gui import run  # tkinter is only needed for this command
+        except ImportError as exc:
+            print(f"The control panel needs tkinter, which this Python does not have ({exc}). "
+                  "Run `python harness.py serve` instead; the page works the same.")
+            return 1
         return run(autostart=not args.no_start)
     try:
         app = build_app(with_memory=args.command in MEMORY_COMMANDS)

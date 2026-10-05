@@ -66,5 +66,6 @@ def build_app(locations: Locations | None = None, *, with_memory: bool = False) 
     memory = (_build_memory(config, models, locations, events)
               if with_memory and config.memory.enabled else disabled_memory())
     runner = GenerationRunner(conversations, models, system_prompt=config.system_prompt,
-                              num_ctx=config.num_ctx, reply_tokens=config.max_reply_tokens, memory=memory)
+                              num_ctx=config.num_ctx, reply_tokens=config.max_reply_tokens, memory=memory,
+                              overflow_fallback=config.overflow_fallback)
     return App(locations, config, events, models, conversations, runner, memory)

@@ -30,3 +30,6 @@ Items promoted to a tranche are removed from this list when that tranche is decl
 - TLS and token rate limiting (already documented as not provided in SECURITY.md).
 - Partial vector results during catch-up: if the vector index holds some but not all turns, retrieval queries only that partial set and does not blend in keyword results.
 - A turn that finishes while the startup catch-up is running may not reach the keyword index until the catch-up ends (retrieve skips its own indexing); cosmetic, since it is still in the recent-context window.
+- Startup runs the embedding-model check (`list_models`) synchronously in `build_app` for `serve`; a hung Ollama could delay startup by up to the listing timeout (10 s). Move it to the first probe.
+- Every finished reply starts its own background reconcile thread; during a long startup catch-up they queue on the index lock. Harmless but unbounded; coalesce to one pending run.
+- A probe checks the embedder with a single throwaway text ("probe"); a model that embeds that but fails on real text is found only by the next real attempt.

@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 
 from ..models.errors import BackendError
+from .provenance import DERIVED_MARKER
 from .window import ContextTooLarge, choose_window
 
 QUESTION = re.compile(r"(?m)^Question:\s*")
@@ -328,7 +329,7 @@ def derive_context(original: str, history: list[tuple[int, dict]], source_event_
         segments = []
         if head:
             segments.append(payload[:head[-1].end])
-        segments.append("[Derived middle: extractive, source-linked context]")
+        segments.append(DERIVED_MARKER)
         segments.extend(payload[x.start:x.end] for x in items)
         if tail:
             segments.append(payload[tail[0].start:])

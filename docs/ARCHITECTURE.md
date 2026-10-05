@@ -2,12 +2,11 @@
 
 _HomeAGENT is one Python process (plus an optional control-panel window). The normal chat path uses the standard library; the optional persistent memory cartridge uses Chroma. This page explains how the pieces fit and why. The Python package is called `agent_harness`, and `harness.py` is its entry point.
 
-The project is now developing toward context scaling. That is a target direction,
-not current behavior: today the generation path selects recent messages that fit
-and may add retrieved same-conversation excerpts. It does not yet summarize an
-overflowing conversation or route among preprocessing strategies. The intended
-first proof will add one bounded fallback at the existing prompt-composition
-seam. See [the project charter](PROJECT-CHARTER.md) for product stop conditions
+The project is developing toward context scaling. Today the generation path selects
+recent messages that fit, may add retrieved same-conversation excerpts, and, for one
+oversized final message of the shape *document, then `Question:`*, derives a bounded,
+source-linked extract (switch: `overflow_fallback`). It does not summarize old
+conversation history or route among preprocessing strategies. See [the project charter](PROJECT-CHARTER.md) for product stop conditions
 and [the overflow architecture paper](CONTEXT-OVERFLOW-FALLBACK-ARCHITECTURE.md)
 for the originating proposal.
 
@@ -57,7 +56,7 @@ Only the server process opens the memory stores (`build_app(with_memory=True)`, 
 
 The index records its schema and embedding model identity; vector dimensions are checked against stored vectors. A mismatch raises a hard error and asks the operator to rebuild the index. Memory failures do not stop chat.
 
-**Status machine.** The cartridge reports `state` (`ready`, `degraded`, `disabled`), `tier` (`vector`, `lexical`, `none`), `reason` (machine-readable, see CONFIGURATION), and `fix` (human text). `ready` with a `lexical` tier means the vector tier cannot serve (missing model or backend, an embedding error, an incompatible index) but the keyword tier is. An embedding error never degrades memory: it is a tier fault that is retried on the next reply. `degraded` means no tier works; replies where every tier failed are counted in `failed_retrievals` and described in `last_error`.
+**Status machine.** The cartridge reports `state` (`ready`, `degraded`, `disabled`), `tier` (`vector`, `lexical`, `none`), `reason` (machine-readable, see CONFIGURATION), and `fix` (human text). `ready` with a `lexical` tier means the vector tier cannot serve (missing model or backend, an embedding error, an incompatible index) but the keyword tier is. An embedding error never degrades memory: it is a tier fault. The vector tier is skipped while it backs off and is probed again on a background thread after 5 s, then 10 s, 20 s and so on up to 300 s, with at most one probe in flight and one embedding call per probe; a reply never waits on a failing embedder after the first failure. A successful probe clears the fault and catches up the index. `degraded` means no tier works; replies where every tier failed are counted in `failed_retrievals` and described in `last_error`.
 
 Retrieved excerpts are added only when they fit. If necessary, older recent-context messages are dropped first; the newest user message is retained or the existing clear context-limit failure is returned. Excerpts are marked as quoted context and their source event references are recorded with the reply window. Disable memory in config to detach it; this takes effect after restart.
 
@@ -111,4 +110,25 @@ Optional components degrade through backup tiers rather than to a dead feature. 
 tier is state `ready` with a reported store and reason, not `degraded`. `degraded` means every
 tier failed.
 
-A full table of external dependencies and their backup paths will be added in T4.
+### External dependencies and their backups
+
+| Dependency | Used for | Backup when absent or failing | Absent-case test |
+|---|---|---|---|
+| Chroma (`chromadb`) | preferred vector store | SQLite vectors (status says `chroma unavailable ... using sqlite fallback`); with `memory.strict`, no vector store and the keyword tier serves | `AbsentDependencyTests.test_chroma_absent_falls_back_to_sqlite_vectors` |
+| Embeddings (Ollama embedding model) | the vector tier of memory | FTS5 keyword search, a separate index that is always kept; status says why and how to fix it | `AbsentDependencyTests.test_embeddings_absent_falls_back_to_keyword_search` |
+| Ollama (chat) | answering | the llama.cpp adapter, when a llama.cpp backend is configured; an unreachable backend is listed with its reason and the others keep working | `AbsentDependencyTests.test_ollama_unreachable_llamacpp_backend_still_chats` |
+| `nvidia-smi` | GPU memory figure in the control panel | the panel shows nothing ("not available"); nothing else changes | `AbsentDependencyTests.test_nvidia_smi_absent_shows_nothing` |
+| tkinter | the control panel window | CLI and server: `python harness.py serve`; the `gui` command says so instead of failing | `AbsentDependencyTests.test_tkinter_absent_cli_and_server_paths_still_work` |
+
+The absent-dependency pattern is one mechanism with two entry points, both in `tests/support.py`:
+`with blocked_modules("name"):` for one test, and `AGENT_HARNESS_BLOCK_MODULES=name` for a whole run or
+a subprocess. Both make the module raise a real `ModuleNotFoundError`. The full suite is run with
+`chromadb` present and with `AGENT_HARNESS_BLOCK_MODULES=chromadb`.
+
+## Known limits
+
+- **llama.cpp.** The adapter is covered by tests against a scripted fake server and has not been run against a real llama.cpp server. The reactive context retry (re-running a request through the fallback after the backend rejects it as too long) is Ollama-only; with llama.cpp only the preflight size check can trigger the fallback.
+- **Snapping granularity.** Kept source spans are widened to the enclosing line or sentence, so a kept span can be larger than the answer. Sentences are split by a simple pattern that does not understand abbreviations.
+- **Chunk and call caps.** At most eight chunks per extraction or reduction pass. Chunks overlap by about 12%, and each overlapped chunk counts toward the eight, so a document only a little over the limit can still fail. All passes share one model-call cap (16) and the generation deadline; reduction recurses at most four times. Over any cap, the reply fails with `context_exceeded`.
+- **Input shape.** Only a single oversized final user message that ends with a `Question:` section is supported. The fallback does not infer instructions from other messages or read file formats.
+- **Memory.** Retrieval is limited to the active conversation. While the startup catch-up is still indexing, retrieval uses what is indexed so far, and a turn finished during the catch-up may reach the keyword index only when it ends.

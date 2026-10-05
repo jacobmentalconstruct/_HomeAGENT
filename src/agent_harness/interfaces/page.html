@@ -27,6 +27,8 @@
   #banner { display: none; padding: 6px 12px; font-size: 14px; background: var(--panel); color: var(--bad); border-bottom: 1px solid var(--line); }
   #memnote { display: none; padding: 6px 12px; font-size: 13px; background: var(--panel); color: var(--muted); border-bottom: 1px solid var(--line); }
   #memnote.warn { color: var(--bad); }
+  #meter details { margin-top: 4px; }
+  #meter pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; margin: 4px 0; font: 12px/1.4 ui-monospace, monospace; }
   main { flex: 1; display: flex; min-height: 0; position: relative; }
   #list { width: 260px; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); }
   #list button { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; }
@@ -119,12 +121,25 @@ function showWindow(w) {
   meter.appendChild(el("div", "", "Context: about " + w.estimated_tokens + " of " + w.budget + " tokens"
     + (w.dropped ? " - " + w.dropped + " earlier message" + (w.dropped === 1 ? "" : "s") + " not sent" : "")));
   if (w.sources && w.sources.length) meter.appendChild(el("div", "", "Retrieved from: " + w.sources.map((s) => s.id).join(", ")));
+  if (w.derived) meter.appendChild(derivedBlock(w.derived));
   const bar = el("div", "bar"); const fill = el("span"); fill.style.width = pct + "%"; bar.appendChild(fill); meter.appendChild(bar);
   meter.style.display = "block";
   if (w.dropped > 0) {
     const first = document.querySelectorAll("#log .turn")[w.start];
     if (first) first.parentNode.insertBefore(el("div", "marker", "Earlier messages are kept, but no longer sent to the model"), first);
   }
+}
+
+// What an oversized message was turned into: the text the model saw, and where each piece came from.
+// Collapsed by default; everything is set as text, never as HTML.
+function derivedBlock(d) {
+  const spans = d.sources || [];
+  const box = el("details", "derived");
+  box.appendChild(el("summary", "", "Derived context (" + d.method + " v" + d.version + ", depth " + d.depth + ", " + spans.length + " source spans)"));
+  box.appendChild(el("div", "meta", "Built from your original message, which is kept unchanged. This is what the model was sent in its place:"));
+  box.appendChild(el("pre", "", d.text));
+  for (const s of spans) box.appendChild(el("div", "meta", "event " + s.event_id + (Array.isArray(s.char_range) ? ", chars " + s.char_range[0] + "-" + s.char_range[1] : ", range unknown")));
+  return box;
 }
 
 // Memory notes: informational for a disabled switch or a fallback tier, a warning when no tier works.

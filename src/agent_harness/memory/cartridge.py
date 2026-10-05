@@ -8,6 +8,7 @@ fix text. It is `degraded` only when no tier can serve.
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 
 from ..models.errors import BackendError
@@ -16,6 +17,11 @@ from .lexical_store import LexicalStore
 
 BATCH_SIZE = 32
 RECONCILE_BATCH = 32
+# After a transient vector-tier failure the tier is skipped (keyword search serves) and probed again on
+# a background thread: first after PROBE_BASE_SECONDS, doubling after each failed probe, never longer than
+# PROBE_MAX_SECONDS. At most one probe runs at a time and a probe makes one embedding call.
+PROBE_BASE_SECONDS = 5
+PROBE_MAX_SECONDS = 300
 _INDEX_FAULTS = ("Memory index uses", "Embedding dimensions changed")
 
 Fault = tuple[str, str, str]  # (machine-readable reason, human fix, error text)
@@ -26,8 +32,13 @@ class ConversationMemory:
 
     def __init__(self, *, enabled: bool, path: Path, identity: str, top_k: int, embed,
                  store_kind: str = "chroma", strict: bool = False, client_factory=None,
-                 model_checker=None, embed_fault: Fault | None = None):
+                 model_checker=None, embed_fault: Fault | None = None, clock=time.monotonic):
         self.enabled, self.identity, self.top_k = enabled, identity, top_k
+        self._clock = clock
+        self._probe_failures = 0
+        self._next_probe = 0.0
+        self._probing = False
+        self._probe_guard = threading.Lock()
         self._embed = embed
         self._lock = threading.RLock()
         self._store = None
@@ -124,9 +135,18 @@ class ConversationMemory:
         fault, lasting = self._classify(exc, embedding=embedding)
         if lasting:
             self._vector_fault = fault
-        elif not (self._transient and self._transient[0] == "embedding_model_missing"
-                  and fault[0] == "embedding_unavailable"):
-            self._transient = fault  # the more specific "model missing" finding is kept
+        else:
+            if not (self._transient and self._transient[0] == "embedding_model_missing"
+                    and fault[0] == "embedding_unavailable"):
+                self._transient = fault  # the more specific "model missing" finding is kept
+            self._probe_failures += 1
+            delay = min(PROBE_MAX_SECONDS, PROBE_BASE_SECONDS * 2 ** (self._probe_failures - 1))
+            self._next_probe = self._clock() + delay
+
+    def _recovered(self) -> None:
+        self._transient = None
+        self._probe_failures = 0
+        self._next_probe = 0.0
 
     def _vector_usable(self) -> bool:
         return self._store is not None and self._vector_fault is None
@@ -152,11 +172,13 @@ class ConversationMemory:
         reason = "all_tiers_failed" if state == "degraded" else first[0]
         error = " ".join(dict.fromkeys(f[2] for f in faults))
         fix = " ".join(dict.fromkeys(f[1] for f in faults)) if state == "degraded" else first[1]
+        retry_in = (round(max(0.0, self._next_probe - self._clock()), 1) if self._transient is not None else 0)
         return {"enabled": True, "state": state, "indexed": len(self._store.ids()) if self._store else 0,
                 "lexical_indexed": len(self._lexical.seqs()) if self._lexical else 0,
                 "error": error, "store": self._store_name, "store_reason": self._store_reason,
                 "tier": tier, "reason": reason, "fix": fix,
-                "failed_retrievals": self._failed_retrievals, "last_error": self._last_error}
+                "failed_retrievals": self._failed_retrievals, "last_error": self._last_error,
+                "retry_in_seconds": retry_in, "probe_failures": self._probe_failures}
 
     def _completed_turn_events(self, events: list[Event]) -> list[Event]:
         completed = {e.payload.get("generation_id") for e in events
@@ -195,8 +217,8 @@ class ConversationMemory:
             self._lexical_transient = None
 
     def _reconcile_vector(self, completed: list[Event], max_events: int | None) -> None:
-        if not self._vector_usable():
-            return
+        if not self._vector_usable() or self._transient is not None:
+            return  # backing off: only the probe tries the vector tier again
         missing = [e for e in completed if f"event-{e.seq}" not in self._store.ids()]
         if max_events is not None:
             missing = missing[:max_events]
@@ -220,7 +242,7 @@ class ConversationMemory:
             except Exception as exc:
                 self._fail(exc, embedding=False)
                 return
-            self._transient = None
+            self._recovered()
 
     def reconcile_in_background(self, events: list[Event]) -> threading.Thread:
         """Index everything missing on a daemon thread, with no batch limit."""
@@ -243,7 +265,9 @@ class ConversationMemory:
             self.reconcile(events, max_events=RECONCILE_BATCH, wait=False)  # never queue behind the catch-up
         except Exception:
             pass
-        if self._vector_usable() and self._store.ids():
+        if self._transient is not None:
+            self._maybe_probe(events)  # never waits: the reply is served by the keyword tier
+        elif self._vector_usable() and self._store.ids():
             try:
                 vector = self._embed([query])[0]
             except Exception as exc:
@@ -257,12 +281,41 @@ class ConversationMemory:
                 except Exception as exc:
                     self._fail(exc, embedding=False)
                 else:
-                    self._transient = None
+                    self._recovered()
                     self._lexical_transient = None
                     for item in results:
                         item.setdefault("method", "vector")
                     return results
         return self._lexical_results(query, conversation_id)
+
+    def _maybe_probe(self, events: list[Event]) -> None:
+        if self._clock() < self._next_probe:
+            return
+        with self._probe_guard:
+            if self._probing:
+                return
+            self._probing = True
+        self._threads = [t for t in self._threads if t.is_alive()]
+        thread = threading.Thread(target=self._probe, args=(events,), daemon=True)
+        self._threads.append(thread)
+        thread.start()
+
+    def _probe(self, events: list[Event]) -> None:
+        try:
+            try:
+                self._embed(["probe"])
+            except Exception as exc:
+                self._fail(exc, embedding=True)
+                return
+            # The embedder answers, but the tier only counts as recovered (backoff reset) once a real
+            # index or query succeeds; otherwise a store that keeps failing would be re-probed every 5 s.
+            self._transient = None
+            self.reconcile(events)  # catch up on what was missed while the tier was down
+        except Exception:
+            pass  # a probe must never crash the server
+        finally:
+            with self._probe_guard:
+                self._probing = False
 
     def _lexical_results(self, query: str, conversation_id: str) -> list[dict]:
         if self._lexical is not None and self._lexical_fault is None:

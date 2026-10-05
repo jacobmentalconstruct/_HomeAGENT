@@ -21,6 +21,7 @@ Ollama chat requests set `truncate=false`, so Ollama rejects rather than silentl
 | `default_model` | `"ollama:qwen3.5:9b"` | The model new devices start on, as `backend_id:model`. You can also set it from the page. If it is not installed, the page uses the first chat model it finds. |
 | `system_prompt` | a short, honest-assistant prompt | The instruction sent ahead of every conversation. |
 | `keep_alive` | `"3m"` | How long Ollama keeps a model in GPU memory after its last reply. A shorter value, such as `"1m"`, frees the GPU sooner. |
+| `overflow_fallback` | `true` | When one message is too big for the model, find the passages that answer its final `Question:` line and send those instead (see the README). `false`: the message fails with the plain `context_exceeded` message, and a backend context error is not retried. Restart after changing it. |
 | `memory` | enabled | Local retrieval cartridge; enabled by default on new installs. See below. |
 
 ## Conversation memory
@@ -64,9 +65,10 @@ The `/api/status` endpoint and each reply's `window.memory` field report memory 
 | `tier` | `vector`, `lexical`, `none` | The tier retrieval is using now. `none` only when degraded. It follows what actually served the last retrieval, not a startup guess. |
 | `reason` | `""`, `embedding_model_missing`, `embedding_unavailable`, `embedding_backend_missing`, `index_incompatible`, `vector_store_unavailable`, `lexical_unavailable`, `transient`, `all_tiers_failed` | Machine-readable cause when not fully healthy. |
 | `fix` | human text or `""` | What to do, for example `run: ollama pull nomic-embed-text`. |
+| `retry_in_seconds`, `probe_failures` | seconds, count | While the vector tier is backing off: seconds until the next probe (0 when due or healthy) and consecutive failed probes. |
 | `failed_retrievals`, `last_error` | count, text | Replies where every tier failed and nothing could be retrieved. The page and `/api/status` show these instead of silently returning nothing. |
 
-An embedding failure is never a degrade: it moves retrieval to the keyword tier, and the vector tier is tried again on the next reply, so memory recovers by itself once Ollama or the model is back. Ollama model names are matched with a missing tag read as `:latest`, so `nomic-embed-text` finds `nomic-embed-text:latest`.
+An embedding failure is never a degrade: it moves retrieval to the keyword tier, and memory recovers by itself once Ollama or the model is back. Recovery is a bounded re-probe: the vector tier is skipped while it backs off, then probed on a background thread after 5 s, 10 s, 20 s and so on, never more than 300 s apart, with one probe at a time and one embedding call per probe. `retry_in_seconds` and `probe_failures` in the status show where it stands. Replies never wait on a failing embedder after the first failure. Ollama model names are matched with a missing tag read as `:latest`, so `nomic-embed-text` finds `nomic-embed-text:latest`.
 
 **SQLite store practical scale (768-dim vectors, this machine, 2026-10-05):**
 

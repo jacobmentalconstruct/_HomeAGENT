@@ -74,7 +74,8 @@ class EmbeddingModelNameTests(MemoryCase):
         self.assertEqual({item["method"] for item in found}, {"vector"})
 
     def test_tier_follows_what_retrieval_actually_used(self):
-        memory = self.make("sqlite")
+        clock = [1000.0]
+        memory = self.make("sqlite", clock=lambda: clock[0])
         memory.reconcile(self.evs)
         working = memory._embed
         memory._embed = boom
@@ -85,6 +86,10 @@ class EmbeddingModelNameTests(MemoryCase):
                          ("ready", "lexical", "embedding_unavailable"))
         self.assertTrue(status["fix"])
         memory._embed = working
+        clock[0] += 5  # the backoff has passed: a background probe finds the tier working again
+        memory.retrieve("home", "a", self.evs)
+        for thread in list(memory._threads):
+            thread.join(10)
         found = memory.retrieve("home", "a", self.evs)
         status = memory.status()
         self.assertEqual({item["method"] for item in found}, {"vector"})

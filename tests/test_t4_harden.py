@@ -430,6 +430,19 @@ class ReprobeTests(MemoryCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(memory.status()["retry_in_seconds"], 10)
 
+    def test_a_successful_probe_does_not_reset_the_backoff_while_the_store_keeps_failing(self):
+        clock = Clock()
+        memory = self.make("sqlite", clock=clock)  # the embedder works; the vector store's writes fail
+        with mock.patch.object(memory._store, "upsert", side_effect=RuntimeError("disk full")):
+            memory.reconcile(self.evs)
+            delays = [memory.status()["retry_in_seconds"]]
+            for _ in range(3):
+                clock.t += delays[-1]
+                memory.retrieve("home", "a", self.evs)
+                join_threads(memory)
+                delays.append(memory.status()["retry_in_seconds"])
+        self.assertEqual(delays, [5, 10, 20, 40])  # it keeps doubling instead of flapping every 5 s
+
     def test_status_reports_when_the_next_probe_is_due(self):
         clock = Clock()
         memory = self.make("sqlite", embed=boom, clock=clock)

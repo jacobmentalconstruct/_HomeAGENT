@@ -118,10 +118,11 @@ class GenerationRunner:
 
     def __init__(self, conversations: ConversationManager, models: ModelRegistry, *,
                  system_prompt: str = "", num_ctx: int = 8192, reply_tokens: int = 2048,
-                 options: dict | None = None, memory=None):
+                 options: dict | None = None, memory=None, overflow_fallback: bool = True):
         self.conversations, self.models = conversations, models
         self.system_prompt, self.options = system_prompt, options
         self.memory = memory
+        self.overflow_fallback = overflow_fallback
         self.num_ctx = num_ctx
         self.budget = budget_tokens(num_ctx, reply_tokens)
         self.estimator = TokenEstimator()
@@ -186,6 +187,8 @@ class GenerationRunner:
                                        self.estimator, self.budget, retrieved)
                 derived = None
             except ContextTooLarge as exc:
+                if not self.overflow_fallback:
+                    raise BackendError("context_exceeded", str(exc)) from exc
                 derived, history = self._derive(gen, backend, model, history, retrieved, deadline,
                                                 overflow_message=str(exc))
                 window = choose_window(history, self.system_prompt, gen.model,
@@ -201,7 +204,8 @@ class GenerationRunner:
                 for chunk in stream:
                     gen.publish({"type": "delta", "text": chunk})
             except BackendError as exc:
-                if exc.reason != "context_exceeded" or derived is not None or backend.config.kind != "ollama":
+                if (exc.reason != "context_exceeded" or derived is not None or backend.config.kind != "ollama"
+                        or not self.overflow_fallback):
                     raise
                 gen.publish({"type": "reset"})
                 stream = None
