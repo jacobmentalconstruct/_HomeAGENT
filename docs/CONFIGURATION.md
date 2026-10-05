@@ -4,7 +4,7 @@ Settings live in `runtime/config.json`, created on first run with defaults and a
 
 If a value is invalid, the server refuses to start and says which one. (`keep_alive` is passed to Ollama as written, so Ollama judges it.) The file is written with every setting the first time the program runs, so a later version's new defaults do not change an existing file; delete a key to get its default back.
 
-Ollama chat requests set `truncate=false`, so Ollama will reject rather than silently drop content if a request exceeds the model context. The harness still selects recent context within its own prompt budget; the approved T1 fallback will handle an oversized newest payload. A request that fits the harness budget is sent normally.
+Ollama chat requests set `truncate=false`, so Ollama rejects rather than silently dropping content if a request exceeds the model context. The harness selects recent context within its own prompt budget and applies the bounded T1 fallback to supported oversized newest messages. Other oversized message shapes fail visibly. A request that fits the harness budget is sent normally.
 
 ## Settings
 

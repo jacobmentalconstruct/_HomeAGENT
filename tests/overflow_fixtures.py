@@ -31,6 +31,12 @@ def middle_document() -> tuple[str, str]:
     return payload + "\nQuestion: What is the mid-document access code?", fact
 
 
+def negative_document() -> str:
+    distractors = [f"Archive entry {i} records routine status and contains no project answer."
+                   for i in range(180)]
+    return "\n".join(distractors) + "\nQuestion: What is the missing access code?"
+
+
 def script_for(text: str, replies: dict[str, str], num_ctx: int = NUM_CTX,
                max_reply_tokens: int = MAX_REPLY_TOKENS) -> list[list[tuple]]:
     """Build rule-based exact extractors for each deterministic chunk, then final answer."""

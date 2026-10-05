@@ -45,6 +45,7 @@ After that, one of these per line:
 | `position` | `position` | Replies ahead of yours on this model. |
 | `running` | `window` | Your turn has come. `window` includes context counts, retrieved `sources`, and memory state (`enabled`, `state`, `indexed`, `error`). Sources list older turns retrieved from this conversation and included in the prompt. When overflow extraction is used, `window.derived` contains the method/version, transformed text, and source event IDs with character ranges and hashes. |
 | `progress` | `phase`, `completed`, `total` | Overflow extraction progress while the reply holds its model queue ticket. `completed` counts finished source chunks; `total` is the bounded chunk count. |
+| `reset` | | The first attempt hit a backend context error; discard any partial text before the single fallback retry. |
 | `delta` | `text` | More of the reply. |
 | `done` | `summary` | The reply is complete: `{"stop_reason": "complete" or "truncated", "prompt_tokens", "reply_tokens"}`. |
 | `failed` | `error` | `{"reason", "message", "partial_text"}`. |
@@ -56,12 +57,17 @@ When T1 overflow extraction is used, `window.derived` has this shape:
 {
   "method": "extractive_map_reduce",
   "version": 1,
+  "depth": 1,
   "text": "The source sentences included with the reply...",
   "sources": [
     {"event_id": 51, "char_range": [120, 340], "source_sha256": "..."}
   ]
 }
 ```
+
+`depth` is 1 for the initial extraction pass or 2 when one bounded combine pass
+is needed. Progress uses phase `extract` for source chunks and `combine` for
+that optional second pass.
 
 Character ranges are half-open offsets into the original event text. The source
 event remains authoritative; this field describes derived text included in the

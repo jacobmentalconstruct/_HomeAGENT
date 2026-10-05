@@ -17,7 +17,7 @@ from agent_harness.models.ollama import OllamaBackend
 from agent_harness.models.registry import ModelRegistry
 from agent_harness.models.transport import Transport
 from tests.overflow_fixtures import (CHUNK_SIZE_FRACTION, MAX_REPLY_TOKENS, NUM_CTX, OVERFLOW_CONFIG,
-                                     middle_document, primary_document, script_for)
+                                     middle_document, negative_document, primary_document, script_for)
 
 MODEL = "ol:fake:1b"
 
@@ -307,16 +307,15 @@ class RunnerWindowTests(Base):
                          len(fake.requests))
 
     def test_no_relevant_source_sentence_fails_visibly_and_later_chat_recovers(self):
-        text, _facts = primary_document()
+        text = negative_document()
         scripts = script_for(text, {})
         fake, runner = self.overflow_runner(*scripts, ollama_reply(["ordinary recovery works"]))
         conv = self.conversations.create()
-        failed = runner.send(conv, text.replace("hidden project marker", "unrelated code"), MODEL)
+        failed = runner.send(conv, text, MODEL)
         result = outcome(*watch(failed))
         self.assertEqual((result["type"], result["error"]["reason"]), ("failed", "context_exceeded"))
         self.assertEqual(len(fake.requests), len(scripts))  # no final answer call after empty extraction
-        self.assertEqual([turn["text"] for turn in self.conversations.get(conv)["turns"][:1]],
-                         [text.replace("hidden project marker", "unrelated code")])
+        self.assertEqual(self.conversations.get(conv)["turns"][0]["text"], text)
         self.talk(runner, conv, ["short follow-up"])
         self.assertEqual(fake.requests[-1]["body"]["messages"][-1]["content"], "short follow-up")
 

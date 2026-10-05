@@ -15,11 +15,13 @@ T0 commit `fae95c1` on `RAG-SUM-GRAPH`; the T0 commit was pushed to
 `origin/RAG-SUM-GRAPH`. Earlier inspection occurred before Git metadata was
 attached; the prior no-Git statements record that initial observation and are
 now superseded. Historical RAG branch names, commit IDs, and merge status below
-describe the source project. T1 implementation has started on this branch.
+describe the source project. T1 runtime work is checkpointed at `27ad048`;
+the final parking commit on this branch records API/documentation and
+verification evidence.
 Existing harness behavior and the focused context/memory/architecture baseline
 were reviewed; 38 tests passed with
 `python -B -m unittest tests.test_architecture tests.test_memory tests.test_window -q`
-on 2026-10-04. The full current suite has not yet been rerun in this snapshot.
+on 2026-10-04. The T1 full suite passed 203 tests on 2026-10-04.
 
 The local overflow probe is recorded in `docs/PROJECT-CHARTER.md`: on Ollama
 0.18.3 with `qwen2.5:0.5b` and `num_ctx=2048`, default truncation accepted the
@@ -67,9 +69,8 @@ Acceptance:
 The original T0 environment observation that Git metadata was absent was
 superseded when this managed checkout appeared. The current Git state is above.
 
-Now: complete the approved T0 documentation update and commit it. T1 is approved
-with the amended criteria below and starts from its own tranche branch after
-that commit.
+The initial T0 documentation baseline is in commit `dfcc9f1`; the amended T0
+follow-up was committed and pushed as `fae95c1` before T1 began.
 Progress:
 - [x] Add charter and recovery-oriented plan/workflow.
 - [x] Align README and architecture overview.
@@ -86,7 +87,8 @@ T0 verification and close-out (2026-10-04):
 - `rg -n "deliberately nothing more|Target: _RAG_v1.0|no tools|no automatic cross-conversation|T1|T2|Git checkout|context scaling|context-overflow" README.md PLAN.md docs` confirmed former scope claims are in the labeled historical plan or legacy notes; current README and charter state the new direction.
 - Manual readback of the charter, active plan, README, architecture, and workflow found the active/implemented distinction consistent. No code or runtime data changed. No tests were run after these documentation-only edits; the previously recorded 38-test focused baseline predates T0 and is not a full-suite result.
 - Historical limitation at initial inspection: Git metadata was not visible then. The managed checkout is now available; its branch and base commit are recorded above.
-- Next: commit the approved documentation update as `T0 wip: align context scaling plan`, then start T1 on `t1-bounded-overflow-extraction`.
+- T0 follow-up docs were committed as `fae95c1` and pushed before T1 began on
+  `t1-bounded-overflow-extraction`.
 
 ## Log
 
@@ -97,10 +99,20 @@ T0 verification and close-out (2026-10-04):
   Prior RAG planning and verification history remains below, labeled historical.
   Evidence and limitation are recorded under T0 verification and close-out
   above. No source, tests, or runtime data changed in the initial T0 baseline.
-  Follow-up doc alignment is currently approved and will be committed as a T0
-  work-in-progress checkpoint before T1 starts.
+  The follow-up alignment was committed as `fae95c1` and pushed before T1
+  started; details and verification are recorded below.
 
-## Current work: T0 documentation alignment
+- 2026-10-04 T1 parked on `t1-bounded-overflow-extraction`. Commits
+  `3a3b3cb` and `27ad048` contain the user-approved truncate-control and
+  bounded-extraction tasks; the final commit closes the API/docs task.
+  Verification: local `qwen2.5:0.5b` raw oversized request failed visibly,
+  integrated fallback answered `COBALT, VIOLET, and MARIGOLD.` with
+  `prompt_eval_count=256`; 203 automated tests passed. Known boundary: only the
+  explicit final `Question:` input shape is supported, extraction is exact-
+  sentence validated, and one local model run is not a general reliability
+  claim. Await USER acceptance; no merge to `main` yet.
+
+## Completed work: T0 documentation alignment
 
 Approved: T0 (USER, 2026-10-04)
 
@@ -155,11 +167,12 @@ T0 verification and close-out (2026-10-04):
 - T0 checkpoint: commit `fae95c1` (`T0 wip: align context scaling plan`) was
   pushed to `origin/RAG-SUM-GRAPH` before T1 began.
 
-### T1 bounded overflow extraction
+## Current work: T1 bounded overflow extraction
 
 Approved: T1 (USER, 2026-10-04; amended acceptance)
 
-Status: approved; starts after the T0 documentation checkpoint.
+Status: parked pending USER acceptance; built after the T0 documentation
+checkpoint.
 
 Expected outcome: when one oversized user message contains a document payload
 followed by an explicit `Question:` section, the harness preserves the question
@@ -251,7 +264,7 @@ settings. The ordinary near-limit fixture is sized below
 Progress:
 - [x] Implement and test Ollama truncate control and near-limit regression.
 - [x] Implement bounded extraction, shared queue/deadline, and progress stream.
-- [ ] Implement provenance window record and API behavior.
+- [x] Implement provenance window record and API behavior.
 
 T1 task 1 evidence (2026-10-04): `OllamaBackend.chat` now sends top-level
 `truncate=false`. A request-shape test asserts that field; a near-budget runner
@@ -276,10 +289,18 @@ derived depth 1, all three planted facts present, and source event/ranges/hash
 recorded. This is one successful run, not a general reliability claim for 0.5B
 extraction.
 
-Now: complete public provenance/API documentation and the full-suite review,
-then park T1 with verified evidence.
-- [x] Add the three deterministic fixtures and verify all acceptance items.
-- [ ] Run local 0.5B scenario, full suite, review, and park with evidence.
+T1 task 3 close-out (2026-10-04): `docs/API.md` documents `window.derived`,
+source-range semantics, depth, progress, and the reactive reset event.
+Configuration and architecture notes now describe the implemented limits and
+visible failure behavior. The final `python -B -m unittest discover -s tests -q`
+run passed all 203 tests; `git diff --check` passed. The real local smoke result
+is recorded above. No Chroma table, cache, event kind, larger-model route, or
+general document-format support was added.
+
+T1 status: parked pending USER acceptance. Keep this branch isolated; do not
+merge to `main` until the USER accepts the parked result.
+
+Now: await USER acceptance or a newly approved tranche.
 
 #### Superseded pre-implementation notes (historical)
 

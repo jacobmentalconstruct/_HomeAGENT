@@ -31,6 +31,6 @@ flowchart TD
 
 The queue ticket covers extraction and the final reply under one generation-wide
 timeout. Progress reports completed chunks. The assistant turn's `window.derived`
-record carries the method, version, transformed text, and source references so
+record carries the method, version, bounded depth, transformed text, and source references so
 the prompt representation can be inspected without replacing the source event
 history.
