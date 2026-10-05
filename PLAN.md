@@ -1,5 +1,20 @@
 # Project plan
 
+## State in 10 lines
+
+```text
+1. Direction: context scaling; product purpose and stop conditions: docs/PROJECT-CHARTER.md.
+2. Proof: protect a final Question in one oversized user message and answer from its document payload.
+3. Shape: explicit final `Question:` only; no arbitrary instruction or format inference.
+4. Trigger: preflight first; one reactive context retry on Ollama only.
+5. Transform: overlapping, source-exact spans; snap/merge at line or sentence granularity.
+6. Bounds: 8 chunks per pass (overlap counts), 16 extraction/reduce calls, depth 4, shared deadline.
+7. Trace: assistant `window.derived` records source event, hash, ranges, and transformed text.
+8. Exclusions: no cache, graph, larger-model route, Chroma changes, or generalized ingestion.
+9. T1 status: accepted and fast-forwarded to `RAG-SUM-GRAPH`; details/evidence are in Log.
+10. `main` remains on the prior RAG v1.0 line; next direction change requires USER approval.
+```
+
 ## Active direction: context scaling (2026-10-04)
 
 The active project purpose and prototype stop conditions are in
@@ -8,20 +23,17 @@ former _RAG_v1.0 target and its non-goals. The completed RAG work remains part o
 the codebase and its record below is preserved as historical reference; it is
 not the active roadmap.
 
-### Current state
+### Current state details
 
-This is a Git checkout on branch `t1-bounded-overflow-extraction`, created from
-T0 commit `fae95c1` on `RAG-SUM-GRAPH`; the T0 commit was pushed to
-`origin/RAG-SUM-GRAPH`. Earlier inspection occurred before Git metadata was
-attached; the prior no-Git statements record that initial observation and are
-now superseded. Historical RAG branch names, commit IDs, and merge status below
-describe the source project. T1 runtime work is checkpointed at `27ad048`;
-the final parking commit on this branch records API/documentation and
-verification evidence.
+The accepted T1 line was built from T0 commit `fae95c1` and is now fast-forwarded
+to `RAG-SUM-GRAPH`. Earlier inspection occurred before Git metadata was attached;
+the prior no-Git statements record that initial observation and are now
+superseded. Historical RAG branch names, commit IDs, and merge status below
+describe the source project. Detailed implementation and repair evidence is
+recorded under `## Log`.
 Existing harness behavior and the focused context/memory/architecture baseline
-were reviewed; 38 tests passed with
-`python -B -m unittest tests.test_architecture tests.test_memory tests.test_window -q`
-on 2026-10-04. The T1 full suite passed 203 tests on 2026-10-04.
+were reviewed; the original focused baseline was 38 tests, and the initial T1
+full suite passed 203 tests. Current repair verification is in `## Log`.
 
 The local overflow probe is recorded in `docs/PROJECT-CHARTER.md`: on Ollama
 0.18.3 with `qwen2.5:0.5b` and `num_ctx=2048`, default truncation accepted the
@@ -104,13 +116,51 @@ T0 verification and close-out (2026-10-04):
 
 - 2026-10-04 T1 parked on `t1-bounded-overflow-extraction`. Commits
   `3a3b3cb` and `27ad048` contain the user-approved truncate-control and
-  bounded-extraction tasks; the final commit closes the API/docs task.
+  bounded-extraction tasks; the final initial-T1 commit closed the API/docs task.
   Verification: local `qwen2.5:0.5b` raw oversized request failed visibly,
   integrated fallback answered `COBALT, VIOLET, and MARIGOLD.` with
   `prompt_eval_count=256`; 203 automated tests passed. Known boundary: only the
   explicit final `Question:` input shape is supported, extraction is exact-
   sentence validated, and one local model run is not a general reliability
-  claim. Await USER acceptance; no merge to `main` yet.
+  claim. This is the initial-T1 checkpoint; its later repair and acceptance
+  supersede its pending-review state.
+
+- 2026-10-04 T1 task 1 evidence: `OllamaBackend.chat` sends `truncate=false`.
+  Request-shape and near-budget runner tests passed (6 tests); the ordinary
+  request remained byte-for-byte unchanged. The config guide documents that the
+  harness owns truncation/fallback decisions.
+
+- 2026-10-04 T1 task 2 evidence: focused backend, overflow, queue/deadline,
+  chunk-cap, depth-cap, recovery, and architecture checks passed (11 tests).
+  The local `qwen2.5:0.5b` smoke classified raw overflow as
+  `context_exceeded`, returned `COBALT, VIOLET, and MARIGOLD.`, used
+  `prompt_eval_count=256`, and recorded source event/ranges/hash.
+
+- 2026-10-04 T1 task 3 close-out: `docs/API.md` documents `window.derived`,
+  source-range semantics, depth, progress, and reactive reset. Configuration
+  and architecture describe limits and visible failures. The initial full suite
+  passed 203 tests; no cache, new event kind/table, larger-model route, or
+  general document-format support was added.
+
+- 2026-10-04 T1 repair verification: offset-preserving spans, 12% overlap,
+  whitespace-normalized exact matching, outward snapping/merged ranges, depth-4
+  reduction, strict shrinkage, total-call cap, and bounded retrieval/system
+  prompt behavior were implemented and tested. Full suite: 211 tests. Local
+  smoke returned `The hidden project marker is VIOLET.` at 315 prompt tokens.
+  Commits `35714ed` and `ad57b6b` were pushed; repair parked pending acceptance.
+
+- 2026-10-04 accepted T1 repair follow-up: fixed reduction sizing to use source
+  offsets and restore oversized merged spans to units. The 1,540-character
+  regression yields four chunks at 500 characters; multi-chunk reduction and
+  non-shrinking fail-closed cases pass. Full suite: 214 tests in 152.203s.
+  Local smoke: raw `context_exceeded`, 315 prompt tokens, derived depth 1, and
+  final reply included the exact VIOLET fact plus one distractor excerpt.
+  Commit `ea72022` was pushed. API/concept docs now state overlap counts toward
+  each pass's 8-chunk cap and snapping uses line or sentence granularity.
+
+- 2026-10-04 T1 accepted and fast-forwarded from
+  `t1-bounded-overflow-extraction` to `RAG-SUM-GRAPH`; `main` remains unchanged.
+  The exact merge and push state is the current Git state above.
 
 ## Completed work: T0 documentation alignment
 
@@ -171,9 +221,8 @@ T0 verification and close-out (2026-10-04):
 
 Approved: T1 reopen (USER, 2026-10-04)
 
-Status: review defect repaired and verified; parked pending USER acceptance.
-Prior T1 implementation and verification remain the baseline. No merge is
-authorized.
+Status: accepted and fast-forwarded to `RAG-SUM-GRAPH`; `main` remains
+unchanged. Prior T1 implementation and verification remain the baseline.
 
 Approved: T1 repair follow-up (USER, 2026-10-04)
 
@@ -204,7 +253,7 @@ Amended repair scope:
 7. Document supported shape limits and that reactive overflow retry is
    Ollama-only; preflight remains the primary cross-backend trigger.
 8. Add focused tests for these repairs, rerun the full suite and local smoke,
-   then park the repair for USER acceptance without merging.
+   park for USER review, and wait for acceptance before considering a merge.
 9. For the accepted review follow-up, use source offset lengths for chunk sizing,
    split oversized merged spans back to units, test multi-chunk reduction and
    non-shrinking failure, and clarify overlap accounting and snap granularity.
@@ -299,7 +348,8 @@ Repair progress:
   fail fast on oversized system prompts, and limit reactive retry to Ollama.
 - [x] Update API/concept docs; full suite and local smoke pass; inspect and
   park as `T1 repair:` without merging.
-- [ ] Await USER acceptance; do not merge unless separately authorized.
+- [x] USER acceptance received; fast-forward T1 into `RAG-SUM-GRAPH` only.
+- [x] Keep `main` unchanged pending a separate USER decision.
 
 T1 repair follow-up progress:
 - [x] Record the accepted review defect and amended scope.
@@ -310,51 +360,10 @@ T1 repair follow-up progress:
 - [x] Document that overlap counts toward the eight-chunk per-pass cap and that
   snapping is to line or sentence granularity; rerun full suite and local smoke.
 - [x] Park the follow-up as `T1 repair:` without merging.
-- [ ] Await USER acceptance; do not merge unless separately authorized.
+- [x] USER acceptance received; repair merged to `RAG-SUM-GRAPH` only.
+- [x] Keep `main` unchanged pending a separate USER decision.
 
-T1 repair verification (2026-10-04):
-
-- Replaced sentence-set matching with offset-preserving spans, size-based
-  chunks with approximately 12% overlap, exact whitespace-normalized substring
-  checks, outward line/sentence snapping, and merged ranges. Added an
-  unpunctuated hard-wrapped fixture and tests for overlap, exact matching,
-  provenance, and the question range from the parse offset.
-- Added bounded recursive reduction with strict shrink checks per reduce level,
-  maximum depth four, a 16-call extraction/reduction cap, and the same
-  generation-wide deadline already shared with the final answer. Added
-  fail-closed call-cap coverage.
-- Preserved the original `ContextTooLarge` message and appends the supported
-  `Question:` shape hint when that shape is unsupported. Oversized system
-  prompts fail before retrieval; oversized-message retrieval uses only a
-  bounded question query. The reactive retry is now Ollama-only.
-- `python -B -m unittest discover -s tests -q` passed 211 tests in 148.665s.
-- `python -B tests/ollama_overflow_smoke.py` passed with local
-  `qwen2.5:0.5b`: raw request `context_exceeded`; integrated answer was
-  `The hidden project marker is VIOLET.`; `prompt_eval_count=315`; derived depth
-  1 and all planted fixture facts were present in source-backed prompt spans.
-  This is one local fixture/model result, not a general accuracy claim.
-- `git diff --check` passed. No event-log schema, cache, Chroma data, or history
-  changes were made. The implementation checkpoint is followed by the parking
-  documentation commit recorded in the log below. No merge was performed.
-
-T1 repair review follow-up verification (2026-10-04):
-
-- Corrected chunk sizing to use source offsets (`end - start`) rather than
-  optional text. Oversized merged spans are expanded back into their enclosed
-  source units before chunking.
-- Tests prove that 20 empty-text spans totaling 1,540 characters form four
-  chunks at a 500-character limit; a separate case proves an oversized merged
-  span is restored to its line/sentence units. The full reducer fixture now
-  exercises multiple reduction chunks, and a non-shrinking pass fails closed.
-- Updated API and concept docs: snapping is at line or sentence granularity;
-  each overlapped chunk counts toward the eight-chunk per-pass cap.
-- `python -B -m unittest discover -s tests -q` passed 214 tests in 152.203s.
-- `python -B tests/ollama_overflow_smoke.py` passed with local
-  `qwen2.5:0.5b`: raw request `context_exceeded`; `prompt_eval_count=315`; the
-  actual answer included an extra distractor excerpt but also the exact fact
-  `The hidden project marker is VIOLET.`; derived depth 1 and all planted facts
-  were present in source-backed prompt spans.
-- `git diff --check` passed. No merge was performed; await USER acceptance.
+Implementation, repair, and verification evidence is recorded in `## Log`.
 
 Known risks: the 0.5B extractor may miss or miscopy relevant sentences despite
 temperature zero; chunk boundaries and character-range mapping need to be
@@ -367,46 +376,8 @@ Fixture constants: `num_ctx=2048`, `max_reply_tokens=256`,
 settings. The ordinary near-limit fixture is sized below
 `budget_tokens(2048, 256)` and must be accepted unchanged.
 
-Progress:
-- [x] Implement and test Ollama truncate control and near-limit regression.
-- [x] Implement bounded extraction, shared queue/deadline, and progress stream.
-- [x] Implement provenance window record and API behavior.
-
-T1 task 1 evidence (2026-10-04): `OllamaBackend.chat` now sends top-level
-`truncate=false`. A request-shape test asserts that field; a near-budget runner
-test proves a normal message is sent byte-for-byte unchanged and completes with
-truncation disabled. `python -B -m unittest tests.test_models.RequestTests
-tests.test_window.RunnerWindowTests.test_near_limit_chat_is_sent_unchanged_with_ollama_truncation_disabled
--q` passed (6 tests). The sandbox denied temporary SQLite creation on the first
-run; the same command passed with test-process temporary-file access. The config
-guide documents the behavior. No real-model call was needed for this bounded
-request behavior check; the integrated local-model scenario remains in T1's
-later acceptance work.
-
-T1 task 1 checkpoint: commit `3a3b3cb` (`T1 wip: disable Ollama server truncation`)
-was pushed to `origin/t1-bounded-overflow-extraction`.
-
-T1 task 2 verification: focused backend, overflow, queue/deadline, chunk-cap,
-depth-cap, recovery, and architecture checks passed (11 tests). The local smoke
-script `python -B tests/ollama_overflow_smoke.py` passed on `qwen2.5:0.5b`: the
-raw fixture request was classified `context_exceeded`; the integrated fallback
-completed with answer `COBALT, VIOLET, and MARIGOLD.`, `prompt_eval_count=256`,
-derived depth 1, all three planted facts present, and source event/ranges/hash
-recorded. This is one successful run, not a general reliability claim for 0.5B
-extraction.
-
-T1 task 3 close-out (2026-10-04): `docs/API.md` documents `window.derived`,
-source-range semantics, depth, progress, and the reactive reset event.
-Configuration and architecture notes now describe the implemented limits and
-visible failure behavior. The final `python -B -m unittest discover -s tests -q`
-run passed all 203 tests; `git diff --check` passed. The real local smoke result
-is recorded above. No Chroma table, cache, event kind, larger-model route, or
-general document-format support was added.
-
-T1 status: parked pending USER acceptance. Keep this branch isolated; do not
-merge to `main` until the USER accepts the parked result.
-
-Now: await USER acceptance or a newly approved tranche.
+Current implementation and acceptance status: see the concise state block at
+the top; per-task evidence and decisions are in `## Log`.
 
 #### Superseded pre-implementation notes (historical)
 
