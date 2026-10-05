@@ -118,11 +118,13 @@ class GenerationRunner:
 
     def __init__(self, conversations: ConversationManager, models: ModelRegistry, *,
                  system_prompt: str = "", num_ctx: int = 8192, reply_tokens: int = 2048,
-                 options: dict | None = None, memory=None, overflow_fallback: bool = True):
+                 options: dict | None = None, memory=None, overflow_fallback: bool = True,
+                 overflow_composition: str = overflow.DEFAULT_COMPOSITION):
         self.conversations, self.models = conversations, models
         self.system_prompt, self.options = system_prompt, options
         self.memory = memory
         self.overflow_fallback = overflow_fallback
+        self.overflow_composition = overflow_composition
         self.num_ctx = num_ctx
         self.budget = budget_tokens(num_ctx, reply_tokens)
         self.estimator = TokenEstimator()
@@ -252,7 +254,7 @@ class GenerationRunner:
             self.num_ctx, self.system_prompt, retrieved, self.options, deadline,
             lambda phase, completed, total: gen.publish({"type": "progress", "phase": phase,
                                                           "completed": completed, "total": total}),
-            overflow_message=overflow_message)
+            overflow_message=overflow_message, composition=self.overflow_composition)
 
     def _fail(self, gen: Generation, reason: str, message: str, partial: str) -> None:
         self.conversations.fail_turn(gen.conversation_id, gen.id, gen.model, reason, message, partial)

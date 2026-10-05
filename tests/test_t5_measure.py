@@ -172,14 +172,14 @@ def make_cell(variant, model, fixture, *, extraction=True, correct=True, visible
             "visible_failure": visible, "model_calls": calls, "seconds": seconds}
 
 
-def full_grid(variant, **overrides):
+def full_grid(variant, overrides=None):
     """Every model x fixture cell for one variant, all passing, with per-cell overrides by (model, fixture)."""
     cells = []
     for model in eval_runner.MODELS:
         for name in FIXTURE_NAMES:
             absent = name == "absent_fact"
             base = dict(extraction=True, correct=True, visible=absent)
-            base.update(overrides.get((model, name), {}))
+            base.update((overrides or {}).get((model, name), {}))
             cells.append(make_cell(variant, model, name, **base))
     return cells
 
@@ -190,27 +190,27 @@ class ThresholdTests(unittest.TestCase):
         self.assertTrue(met["checks"]["extraction_models_ge_1_5b"]["met"])
         self.assertTrue(met["checks"]["extraction_0_5b"]["met"])
         miss_one_small = eval_runner.evaluate_thresholds(
-            full_grid("baseline", **{("qwen2.5:0.5b", "two_facts"): {"extraction": False}}), "baseline")
+            full_grid("baseline", {("qwen2.5:0.5b", "two_facts"): {"extraction": False}}), "baseline")
         self.assertTrue(miss_one_small["checks"]["extraction_0_5b"]["met"])  # 7/8 is enough for 0.5B
         miss_two_small = eval_runner.evaluate_thresholds(
-            full_grid("baseline", **{("qwen2.5:0.5b", "two_facts"): {"extraction": False},
+            full_grid("baseline", {("qwen2.5:0.5b", "two_facts"): {"extraction": False},
                                      ("qwen2.5:0.5b", "wrapped_text"): {"extraction": False}}), "baseline")
         self.assertFalse(miss_two_small["checks"]["extraction_0_5b"]["met"])
         miss_mid = eval_runner.evaluate_thresholds(
-            full_grid("baseline", **{("qwen2.5:1.5b", "two_facts"): {"extraction": False}}), "baseline")
+            full_grid("baseline", {("qwen2.5:1.5b", "two_facts"): {"extraction": False}}), "baseline")
         self.assertFalse(miss_mid["checks"]["extraction_models_ge_1_5b"]["met"])  # 100% for 1.5B and up
 
     def test_correctness_threshold_gates_only_models_4b_and_up(self):
-        small_wrong = full_grid("baseline", **{(m, f): {"correct": False} for m in ("qwen2.5:0.5b", "qwen2.5:1.5b", "qwen3.5:2b")
+        small_wrong = full_grid("baseline", {(m, f): {"correct": False} for m in ("qwen2.5:0.5b", "qwen2.5:1.5b", "qwen3.5:2b")
                                                for f in FIXTURE_NAMES if f != "absent_fact"})
         result = eval_runner.evaluate_thresholds(small_wrong, "baseline")
         self.assertTrue(result["checks"]["correctness_models_ge_4b"]["met"])  # smaller models are reported only
         self.assertIn("qwen2.5:1.5b", result["report_only"]["correctness"])
         big_one_wrong = eval_runner.evaluate_thresholds(
-            full_grid("baseline", **{("qwen3.5:4b", "two_facts"): {"correct": False}}), "baseline")
+            full_grid("baseline", {("qwen3.5:4b", "two_facts"): {"correct": False}}), "baseline")
         self.assertTrue(big_one_wrong["checks"]["correctness_models_ge_4b"]["met"])  # 7/8 = 87.5% >= 80%
         big_two_wrong = eval_runner.evaluate_thresholds(
-            full_grid("baseline", **{("qwen3.5:9b", "two_facts"): {"correct": False},
+            full_grid("baseline", {("qwen3.5:9b", "two_facts"): {"correct": False},
                                      ("qwen3.5:9b", "middle_fact"): {"correct": False}}), "baseline")
         self.assertFalse(big_two_wrong["checks"]["correctness_models_ge_4b"]["met"])  # 6/8 = 75% < 80%
 
@@ -218,7 +218,7 @@ class ThresholdTests(unittest.TestCase):
         result = eval_runner.evaluate_thresholds(full_grid("baseline"), "baseline")
         self.assertTrue(result["checks"]["absent_fact_fails_visibly"]["met"])
         once = eval_runner.evaluate_thresholds(
-            full_grid("baseline", **{("qwen3.5:9b", "absent_fact"): {"visible": False}}), "baseline")
+            full_grid("baseline", {("qwen3.5:9b", "absent_fact"): {"visible": False}}), "baseline")
         self.assertFalse(once["checks"]["absent_fact_fails_visibly"]["met"])
 
     def test_timings_are_reported_not_gated(self):
@@ -313,7 +313,7 @@ class EvalRunnerTests(unittest.TestCase):
         def cells_with(**per_variant):
             cells = []
             for variant in COMPOSITIONS:
-                cells += full_grid(variant, **per_variant.get(variant, {}))
+                cells += full_grid(variant, per_variant.get(variant, {}))
             return cells
         # 1. more thresholds met wins
         worse = {("qwen3.5:9b", "absent_fact"): {"visible": False}}

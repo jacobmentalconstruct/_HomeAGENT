@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 
 from ..models.errors import BackendError
-from .provenance import DERIVED_MARKER
+from .provenance import COMPOSITIONS, DEFAULT_COMPOSITION, compose
 from .window import ContextTooLarge, choose_window
 
 QUESTION = re.compile(r"(?m)^Question:\s*")
@@ -156,10 +156,11 @@ def snap_and_merge(ranges: list[tuple[int, int]], units: list[Sentence]) -> list
     return [Sentence(a, b, "") for a, b in merged]
 
 
-def keep_ends(payload: str, model: str, estimator, budget: int) -> tuple[list[Sentence], list[Sentence]]:
-    """Keep source units from each end within a 10% prompt-budget share apiece."""
+def keep_ends(payload: str, model: str, estimator, budget: int,
+              share: float = HEAD_TAIL_BUDGET_SHARE) -> tuple[list[Sentence], list[Sentence]]:
+    """Keep source units from each end within a prompt-budget share apiece (10% unless a composition says so)."""
     all_units = sentences(payload)
-    allowance = max(0, int(budget * HEAD_TAIL_BUDGET_SHARE))
+    allowance = max(0, int(budget * share))
 
     def cost(items):
         if not items:
@@ -259,7 +260,8 @@ def bounded_question(text: str, max_chars: int) -> str:
 def derive_context(original: str, history: list[tuple[int, dict]], source_event_id: int, model: str,
                    backend, estimator, budget: int, num_ctx: int, system_prompt: str,
                    retrieved: list[dict], options: dict | None, deadline: float,
-                   progress, overflow_message: str = "") -> tuple[dict, list[tuple[int, dict]]]:
+                   progress, overflow_message: str = "",
+                   composition: str = DEFAULT_COMPOSITION) -> tuple[dict, list[tuple[int, dict]]]:
     """Derive bounded source spans. Calls share the caller's ticket, deadline and total-call cap."""
     try:
         payload, question, question_range = parse_question(original)
@@ -267,7 +269,8 @@ def derive_context(original: str, history: list[tuple[int, dict]], source_event_
         suffix = "Supported fallback shape: a document payload followed by a final explicit Question: section."
         message = f"{overflow_message} {suffix}".strip() if overflow_message else f"{exc} {suffix}"
         raise BackendError("context_exceeded", message) from exc
-    head, tail = keep_ends(payload, model, estimator, budget)
+    layout = COMPOSITIONS[composition]
+    head, tail = keep_ends(payload, model, estimator, budget, layout["share"])
     protected = [(x.start, x.end) for x in head + tail]
     middle = [u for u in sentences(payload) if not any(u.start >= a and u.end <= b for a, b in protected)]
     max_chars = max(1, int(num_ctx * CHUNK_SIZE_FRACTION * estimator.ratio(model)))
@@ -326,15 +329,9 @@ def derive_context(original: str, history: list[tuple[int, dict]], source_event_
         raise BackendError("context_exceeded", "No source span matched the question; nothing was transformed.")
 
     def render(items: list[Sentence]) -> str:
-        segments = []
-        if head:
-            segments.append(payload[:head[-1].end])
-        segments.append(DERIVED_MARKER)
-        segments.extend(payload[x.start:x.end] for x in items)
-        if tail:
-            segments.append(payload[tail[0].start:])
-        segments.append(question)
-        return "\n".join(segment for segment in segments if segment)
+        return compose(layout["order"], [payload[:head[-1].end]] if head else [],
+                       [payload[x.start:x.end] for x in items],
+                       [payload[tail[0].start:]] if tail else [], [question])
 
     changed_history = list(history)
     changed_history[-1] = (history[-1][0], {"role": "user", "content": render(selected)})
@@ -362,13 +359,13 @@ def derive_context(original: str, history: list[tuple[int, dict]], source_event_
 
     ranges = []
     if head:
-        ranges.append([0, head[-1].end])
-    ranges.extend([[item.start, item.end] for item in selected])
+        ranges.append(("head", [0, head[-1].end]))
+    ranges.extend(("middle", [item.start, item.end]) for item in selected)
     if tail:
-        ranges.append([tail[0].start, len(payload)])
-    ranges.append([question_range[0], question_range[1]])
-    sources = [{"event_id": source_event_id, "char_range": span, "source_sha256": source_hash}
-               for span in ranges]
-    derived = {"method": "extractive_map_reduce", "version": 2, "depth": depth,
+        ranges.append(("tail", [tail[0].start, len(payload)]))
+    ranges.append(("question", [question_range[0], question_range[1]]))
+    sources = [{"event_id": source_event_id, "char_range": span, "source_sha256": source_hash, "role": role}
+               for role, span in ranges]
+    derived = {"method": "extractive_map_reduce", "version": 2, "depth": depth, "composition": composition,
                "text": changed_history[-1][1]["content"], "sources": sources}
     return derived, changed_history

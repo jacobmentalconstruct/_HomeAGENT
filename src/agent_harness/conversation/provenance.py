@@ -8,6 +8,23 @@ DERIVED_MARKER = "[Derived middle: extractive, source-linked context]"
 METHOD = "extractive_map_reduce"
 VERSION = 2
 
+# How the derived prompt is put together. `share` is the part of the prompt budget kept from each end of the
+# document; `order` is where the derived block sits among the kept head and tail. The question is always last.
+COMPOSITIONS = {
+    "baseline": {"share": 0.10, "order": ("head", "derived", "tail")},
+    "small_ends": {"share": 0.05, "order": ("head", "derived", "tail")},
+    "block_by_question": {"share": 0.10, "order": ("head", "tail", "derived")},
+}
+DEFAULT_COMPOSITION = "baseline"
+_ROLE_RANK = {"head": 0, "middle": 1, "tail": 2, "question": 3}
+
+
+def compose(order, head: list[str], middle: list[str], tail: list[str], question: list[str]) -> str:
+    """The derived prompt text: kept pieces and the marked derived block in `order`, then the question."""
+    parts = {"head": head, "derived": [DERIVED_MARKER, *middle], "tail": tail}
+    segments = [piece for role in order for piece in parts[role]] + question
+    return "\n".join(segment for segment in segments if segment)
+
 
 def _valid_ranges(original: str, sources: list) -> list[tuple[int, int]] | None:
     """Ordered, non-overlapping, non-empty half-open ranges inside the original, or None."""
@@ -46,8 +63,19 @@ def verify_derived(original_event_text: str, derived_record) -> list[str]:
     if ranges is None:
         return problems + ["range_invalid"]
     pieces = [original_event_text[a:b] for a, b in ranges]
-    # The derived text is the source pieces in order, joined by newlines, with the marker line
-    # standing where the omitted middle was.
-    if not any("\n".join(pieces[:k] + [DERIVED_MARKER] + pieces[k:]) == text for k in range(len(pieces) + 1)):
+    roles = [s.get("role") for s in sources]
+    if all(role is None for role in roles):
+        # Older records: baseline order, the marker line standing where the omitted middle was.
+        if not any("\n".join(pieces[:k] + [DERIVED_MARKER] + pieces[k:]) == text for k in range(len(pieces) + 1)):
+            problems.append("text_mismatch")
+        return problems
+    if any(role not in _ROLE_RANK for role in roles) or roles != sorted(roles, key=_ROLE_RANK.get):
+        return problems + ["malformed"]
+    composition = COMPOSITIONS.get(derived_record.get("composition", "baseline"))
+    if composition is None:
+        return problems + ["unknown_composition"]
+    by_role = {role: [p for p, r in zip(pieces, roles) if r == role] for role in _ROLE_RANK}
+    if compose(composition["order"], by_role["head"], by_role["middle"], by_role["tail"],
+               by_role["question"]) != text:
         problems.append("text_mismatch")
     return problems
