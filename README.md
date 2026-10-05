@@ -78,8 +78,10 @@ A message that is too big for the model's context normally fails with `context_e
 
 - The original message is kept exactly as you sent it. Original messages are never deleted or edited, and the derived text is attached only to the reply that used it.
 - The page shows a collapsed **Derived context** block under the context meter: the text the model was sent, and the character range in your message that each piece came from. The `verify_derived` check in the code recomputes those ranges and the hash from your original message.
+- Reliability: the extraction step is a small model call. In the measured eval (`docs/EVAL-RESULTS.md`) the 4B and 9B models found the answer passage every time; the 1.5B and 2B models missed one of eight documents each and the 0.5B model missed half. Use a 4B or larger model for this.
 - Limits: the document must fit within eight extraction chunks per pass, at most 16 model calls and four reduction rounds are spent on one message, and kept passages are widened to a whole line or sentence. See "Known limits" in [Architecture](docs/ARCHITECTURE.md).
 - Failure behavior: if the message does not have the `Question:` shape, if nothing in the document matches, if a limit is reached, or if the result still does not fit, the reply fails visibly with `context_exceeded` and says why. Nothing is sent cut off, and later chat in the conversation carries on normally.
+- On the page, the **Document** button opens a Document box above the message box. Paste the document there, type your question in the message box, and Send: the page joins them as `document`, a new line, `Question: your question`, which is the shape above. The server sees an ordinary message and its limit of 20,000 characters still applies (the page tells you if you are over it).
 - To turn the fallback off, set `"overflow_fallback": false` in `runtime/config.json` and restart. Oversized messages then fail with the plain `context_exceeded` message.
 
 ## Security in short

@@ -15,7 +15,7 @@ COMPOSITIONS = {
     "small_ends": {"share": 0.05, "order": ("head", "derived", "tail")},
     "block_by_question": {"share": 0.10, "order": ("head", "tail", "derived")},
 }
-DEFAULT_COMPOSITION = "baseline"
+DEFAULT_COMPOSITION = "small_ends"  # the winner of the T5 eval (docs/EVAL-RESULTS.md)
 _ROLE_RANK = {"head": 0, "middle": 1, "tail": 2, "question": 3}
 
 

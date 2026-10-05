@@ -58,14 +58,15 @@ When T1 overflow extraction is used, `window.derived` has this shape:
   "method": "extractive_map_reduce",
   "version": 2,
   "depth": 1,
+  "composition": "baseline",
   "text": "The source spans included with the reply...",
   "sources": [
-    {"event_id": 51, "char_range": [120, 340], "source_sha256": "..."}
+    {"event_id": 51, "char_range": [120, 340], "source_sha256": "...", "role": "middle"}
   ]
 }
 ```
 
-`depth` is 1 for initial extraction and increments for recursive reduction,
+`composition` names how the prompt was put together (`baseline`, `small_ends` or `block_by_question`; see ARCHITECTURE) and each source's `role` is `head`, `middle`, `tail` or `question`; records from before these fields existed verify as `baseline`. `depth` is 1 for initial extraction and increments for recursive reduction,
 with a hard maximum of 4. `sources` includes half-open character ranges in the
 original user event; the question range comes from the parsed `Question:`
 offset. Version 2 validates whitespace-normalized exact source substrings,

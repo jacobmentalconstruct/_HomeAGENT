@@ -346,7 +346,7 @@ $("form").onsubmit = (e) => {
 $("docmode").onclick = () => {
   state.docOpen = !state.docOpen;
   $("doc").style.display = state.docOpen ? "block" : "none";
-  $("text").placeholder = state.docOpen ? "Your question about the document" : "Message";
+  $("text").placeholder = state.docOpen ? "Your question" : "Message";
   if (state.docOpen) $("doc").focus(); else $("text").focus();
 };
 $("text").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !/Mobi|Android|iPhone/i.test(navigator.userAgent)) { e.preventDefault(); $("form").requestSubmit(); } };

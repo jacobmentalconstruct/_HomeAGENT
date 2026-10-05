@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from agent_harness.conversation.overflow import chunks, keep_ends, sentences
-from agent_harness.conversation.provenance import COMPOSITIONS
+from agent_harness.conversation.provenance import COMPOSITIONS, DEFAULT_COMPOSITION
 from agent_harness.conversation.window import TokenEstimator
 
 NUM_CTX = 2048
@@ -48,7 +48,7 @@ def hardwrapped_document() -> tuple[str, str]:
 
 
 def script_for(text: str, replies: dict[str, str], num_ctx: int = NUM_CTX,
-               max_reply_tokens: int = MAX_REPLY_TOKENS, composition: str = "baseline") -> list[list[tuple]]:
+               max_reply_tokens: int = MAX_REPLY_TOKENS, composition: str = DEFAULT_COMPOSITION) -> list[list[tuple]]:
     """Build rule-based exact extractors for each deterministic chunk, then final answer."""
     from tests.fake_backends import ollama_reply
 

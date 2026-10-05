@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. T4 accepted (USER, 2026-10-05). T5 Measure and Compose declared on t5-measure; T6 not started.
+3. T4 accepted (USER, 2026-10-05). T5 parked on t5-measure, awaiting USER acceptance; T6 not started.
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -119,7 +119,7 @@ complete. Full T3–T6 scopes, non-goals, and exit criteria are in
 - [x] **T4** (accepted by USER 2026-10-05) Full suite green; `verify_derived` pure function tested; overflow config switch tested;
   page shows derived block (textContent only); memory bounded re-probe tested; dependency table in
   ARCHITECTURE; parked on `t4-harden`.
-- [ ] **T5** Eight eval fixtures run against five models; results in `docs/`; prompt-composition
+- [x] **T5** (parked; awaiting USER acceptance; two thresholds missed and recorded as named limitations) Eight eval fixtures run against five models; results in `docs/`; prompt-composition
   winner chosen by numbers; page has Document + Question fields; exit thresholds met or recorded
   as named limitations; parked on `t5-measure`.
 - [ ] **T6** Version 0.2.0 bumped; short CHANGELOG written; full suite from fresh clone with and
@@ -160,7 +160,7 @@ policy above. Applied in T2.
 
 ## Current work: T5 Measure and Compose
 
-Status: **declared by USER instruction (2026-10-05); in progress. Do not start T6.**
+Status: **parked as `T5:`; awaiting USER acceptance. T6 not started.**
 Branch: `t5-measure` (off the T4 head `b6d0a94`). Scope source: `docs/CLOSEOUT-SCOPE.md` T5 items 1-4.
 Note: `origin/RAG-SUM-GRAPH` was still at the T2 head `71ebc12`; local `RAG-SUM-GRAPH` was fast-forwarded to
 `t4-harden` (not pushed) so T5 branches off T4.
@@ -234,14 +234,55 @@ Acceptance bullet -> named test or recorded artifact (tests in `tests/test_t5_me
   the parking entry.
 
 Progress:
-- [x] Declare T5; record the amendment, thresholds, interpretation and winner rule before any run
-- [ ] Failing tests written and shown red
-- [ ] Composition variants and `verify_derived` roles
-- [ ] Fixtures, runner, threshold and winner functions
-- [ ] Page Document + Question UI
-- [ ] Live eval run (5 models x 3 variants x 8 fixtures) and results in `docs/`
-- [ ] Winner set as default; thresholds met or named limitations recorded
-- [ ] Both suite modes green; park as `T5:`; push `t5-measure`
+- [x] Declare T5; record the amendment, thresholds, interpretation and winner rule before any run (commit `533ef38`)
+- [x] Failing tests written and shown red (commit `b26b66b`; import errors before implementation)
+- [x] Composition variants and `verify_derived` roles
+- [x] Fixtures, runner, threshold and winner functions
+- [x] Page Document + Question UI
+- [x] Live eval run (5 models x 3 variants x 8 fixtures = 120 cells) and results in `docs/`
+- [x] Winner set as default; thresholds met or named limitations recorded
+- [x] Both suite modes green; park as `T5:`; push `t5-measure`
+
+Evidence (2026-10-05, this machine, real local Ollama; run at commit `7e42dd9` plus the doc and test edits listed below):
+- `python -B -m tests.eval.runner` (all defaults): 120 cells, 387 s of summed cell time. Artifacts: `docs/eval-results.json`
+  (raw, per cell) and `docs/EVAL-RESULTS.md` (generated report with threshold tables and cell grids).
+- Winner by the rule fixed before the run: `small_ends`. Scores (thresholds met of 4 / correct answers / extraction
+  passes / model calls): baseline 2 / 32 / 33 / 213; small_ends 2 / 33 / 34 / 232; block_by_question 2 / 33 / 33 / 213.
+  Every variant met the same two thresholds, so the decision came down to rules 2 and 3: small_ends beat baseline by one
+  correct answer and one extraction pass out of 120 cells. That is a thin margin from a single run per cell; the
+  winner is the declared rule's output, not a strong finding. `DEFAULT_COMPOSITION = "small_ends"`.
+- Exit thresholds for the winning variant (small_ends):
+  - Extraction, models >= 1.5B, 100%: MISSED. qwen2.5:1.5b 7/8, qwen3.5:2b 7/8, qwen3.5:4b 8/8, qwen3.5:9b 8/8.
+  - Extraction, 0.5B, >= 7/8: MISSED. qwen2.5:0.5b 4/8 (3/8 under baseline and block_by_question).
+  - Correctness >= 80%, models >= 4B: MET. qwen3.5:4b 8/8, qwen3.5:9b 8/8. Reported only: 0.5b 4/8, 1.5b 7/8, 2b 6/8.
+  - Absent fact fails visibly every time: MET, all five models in every variant.
+  - Timings reported, not gated: small_ends totals over 8 fixtures: 0.5b 11.7 s / 44 calls, 1.5b 9.8 s / 44, 2b 54.9 s / 54,
+    4b 22.2 s / 45, 9b 27.0 s / 45.
+- Named known limitations (the rule says record them and stop; no further variants were tried): (1) the answer
+  sentence does not reach the derived text in 8/8 fixtures for qwen2.5:1.5b (head_tail_boundary, nothing matched, failed
+  visibly) and qwen3.5:2b (unpunctuated_text, 16 model calls); (2) qwen2.5:0.5b reaches it in 4/8. They are written up in
+  ARCHITECTURE "Known limits" and the README. No threshold, fixture or rule was changed after seeing results.
+- Notes on individual cells, for the reviewer: qwen3.5:2b wrapped_text answered "04:30 sharp" (extraction passed; counted
+  incorrect because the declared key is "third Thursday"); one qwen2.5:0.5b small_ends cell ended with a backend
+  `incomplete` stream error (head_tail_boundary) and is recorded as it happened; the 0.5B model's absent-fact "pass" is a
+  visible failure like the others.
+- Pilot before the real run (not in the results): one cell each of qwen2.5:0.5b and qwen3.5:2b on middle_fact/baseline into a
+  temp file, only to confirm the pipeline ran. No fixture, threshold or rule was changed afterwards.
+- `python -B -m unittest discover -s tests` (Chroma present): 345 tests, OK, 2 skipped, 172.6 s.
+  `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest discover -s tests`: 345 tests, OK, 2 skipped, 172.4 s.
+- Page, in the in-app browser against a throwaway server with a temp runtime (not your data): the Document button opens a
+  Document box above the message box; Send with a document and no question shows "Add a question below the document." and
+  keeps the text; `prepareMessage` composes `Doc line.\nQuestion: What?` and refuses 20,013 characters with the 20,000 limit;
+  the 375 px mobile layout works. The T3 "memory is disabled in config" note was also seen there. The placeholder was
+  shortened ("Your question") after that viewing and not re-viewed. No message was sent through the page to a model.
+- Backend parsing unchanged: `parse_question` is pinned by `DocumentQuestionPageTests.test_parse_question_is_unchanged`; the
+  page composes the message in the browser.
+- Changes beyond the four listed items: the derived record gained `composition` and per-source `role` (needed so
+  `verify_derived` stays valid for every variant; old records still verify as baseline), `keep_ends` takes an optional
+  `share`, and `GenerationRunner` takes `overflow_composition`. `tests/overflow_fixtures.script_for` follows the default
+  composition. CLOSEOUT-SCOPE item 1 was edited for the approved fixture amendment.
+- Not run: repeat runs per cell (so no variance estimate), models above 9B or below 0.5B, llama.cpp, a real reply through the
+  new page fields.
 
 ## Parked: T4 Harden (no new features)
 

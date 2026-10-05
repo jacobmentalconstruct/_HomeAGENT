@@ -242,7 +242,7 @@ class EvalRunnerTests(unittest.TestCase):
     def scripts_for(self, name, answer):
         fixture = DOC_FIXTURES[name]
         replies = {fact[:24]: fact for fact in fixture.facts}
-        scripts = script_for(fixture.text, replies)
+        scripts = script_for(fixture.text, replies, composition="baseline")
         return fixture, scripts, [ollama_reply([answer])]
 
     def test_the_declared_models_and_variants(self):
@@ -266,7 +266,7 @@ class EvalRunnerTests(unittest.TestCase):
 
     def test_an_absent_fact_cell_records_a_visible_failure(self):
         fixture = DOC_FIXTURES["absent_fact"]
-        scripts = script_for(fixture.text, {})
+        scripts = script_for(fixture.text, {}, composition="baseline")
         cell = eval_runner.run_cell(self.backend(*scripts), "fake:1b", fixture, "baseline")
         self.assertEqual((cell["state"], cell["error_reason"], cell["visible_failure"], cell["derived"]),
                          ("failed", "context_exceeded", True, False))
@@ -275,7 +275,7 @@ class EvalRunnerTests(unittest.TestCase):
 
     def test_results_are_saved_after_each_cell_and_resumed(self):
         fixture, scripts, final = self.scripts_for("middle_fact", fixture_answer("middle_fact"))
-        absent = script_for(DOC_FIXTURES["absent_fact"].text, {})
+        absent = script_for(DOC_FIXTURES["absent_fact"].text, {}, composition="baseline")
         backend = self.backend(*scripts, *final, *absent)
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "results.json"
