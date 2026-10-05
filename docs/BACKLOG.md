@@ -33,3 +33,4 @@ Items promoted to a tranche are removed from this list when that tranche is decl
 - Startup runs the embedding-model check (`list_models`) synchronously in `build_app` for `serve`; a hung Ollama could delay startup by up to the listing timeout (10 s). Move it to the first probe.
 - Every finished reply starts its own background reconcile thread; during a long startup catch-up they queue on the index lock. Harmless but unbounded; coalesce to one pending run.
 - A probe checks the embedder with a single throwaway text ("probe"); a model that embeds that but fails on real text is found only by the next real attempt.
+- A conversation started with Document + Question is titled with the document's first line ("Archive entry 0 records ..."); the question would make a better title.

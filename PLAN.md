@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. T5 accepted (USER, 2026-10-05); RAG-SUM-GRAPH pushed at the T5 head. T6 Release declared on t6-release.
+3. Project complete: v0.2.0 tagged on RAG-SUM-GRAPH (T6). The USER merges RAG-SUM-GRAPH -> main.
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -122,7 +122,7 @@ complete. Full T3–T6 scopes, non-goals, and exit criteria are in
 - [x] **T5** (accepted by USER 2026-10-05; two thresholds missed and recorded as named limitations) Eight eval fixtures run against five models; results in `docs/`; prompt-composition
   winner chosen by numbers; page has Document + Question fields; exit thresholds met or recorded
   as named limitations; parked on `t5-measure`.
-- [ ] **T6** Version 0.2.0 bumped; short CHANGELOG written; full suite from fresh clone with and
+- [x] **T6** (done; the final merge to `main` is the USER's) Version 0.2.0 bumped; short CHANGELOG written; full suite from fresh clone with and
   without chromadb; live smoke matrix recorded; PLAN.md final park with "project complete" and
   deferred list; git tag `v0.2.0`; USER merges `RAG-SUM-GRAPH → main`.
 
@@ -160,7 +160,7 @@ policy above. Applied in T2.
 
 ## Current work: T6 Release
 
-Status: **declared by USER instruction (2026-10-05); in progress. Stop after the tag; the USER merges to `main`.**
+Status: **complete; tagged `v0.2.0`. Stopped. The USER merges `RAG-SUM-GRAPH` into `main`.**
 Branch: `t6-release` (off `RAG-SUM-GRAPH` at the T5 head `b6a32dd`, which was pushed to `origin/RAG-SUM-GRAPH`
 at the start of T6: `71ebc12..b6a32dd`, a fast-forward through T3, T4 and T5).
 USER instruction recorded: push `RAG-SUM-GRAPH` after each accepted tranche.
@@ -198,11 +198,63 @@ Acceptance bullet -> named test or recorded artifact (tests in `tests/test_t6_re
 
 Progress:
 - [x] Push RAG-SUM-GRAPH at the T5 head; branch; declare T6; map bullets
-- [ ] Failing tests written and shown red
-- [ ] Version, CHANGELOG, report section, doc pass (A, B, C)
-- [ ] Live smoke matrix (D) recorded in `docs/SMOKE-MATRIX.md`
-- [ ] Fresh clone suite, with and without chromadb
-- [ ] PLAN.md "project complete"; fast-forward and push RAG-SUM-GRAPH; tag and push `v0.2.0`; delete merged branches; stop
+- [x] Failing tests written and shown red (commit `0019952`: 15 problems in 12 tests before implementation)
+- [x] Version, CHANGELOG, report section, doc pass (A, B, C) (commit `906b644`)
+- [x] Live smoke matrix (D) recorded in `docs/SMOKE-MATRIX.md`
+- [x] Fresh clone suite, with and without chromadb
+- [x] PLAN.md "project complete"; fast-forward and push RAG-SUM-GRAPH; tag and push `v0.2.0`; delete merged branches; stop
+
+Evidence and findings (2026-10-05):
+- Fresh clone (`git clone --branch t6-release` into a temporary directory): FRESH_RESULTS
+- Live smoke matrix: `docs/SMOKE-MATRIX.md`. Highlights: all three memory conditions (and the combination) behave as
+  documented; `--backlog 800` retrieve 0.226 s during a 7.35 s catch-up; a real 10,871-character Document + Question
+  message sent through the page in the browser to `qwen3.5:4b` was answered correctly with a `small_ends` derived
+  record that `verify_derived` accepts; the overflow smoke passes with `qwen3.5:4b` and gives a silent wrong answer
+  ("COBALT.") with `qwen2.5:0.5b`, which answered correctly in the T1 run under the old 10% ends. That is consistent
+  with the eval and the "4B or larger" advice; it is recorded, not acted on.
+- Doc pass findings fixed: README claimed the suite "runs in two modes automatically" (it does not; the second mode
+  is the environment variable); ARCHITECTURE lacked `overflow.py` and `provenance.py` in the module table and still
+  called memory "optional ... uses Chroma"; CONFIGURATION and API still said "T1"; SECURITY did not say derived text is
+  stored in the event log. New: size limits table (computed from the code and checked by a test), silent-wrong warning
+  in README and ARCHITECTURE, near-tie statement, CHANGELOG, a "Silent wrong answers" section in the generated eval
+  report (regenerated from unchanged data: cells, scores and winner identical).
+- Size finding worth knowing: at `num_ctx` 8,192 with a 256-token reply, and at 16,384, every message the server
+  accepts (20,000 characters) already fits the estimated budget, so the fallback is reachable from the page only via
+  Ollama's reactive retry. At the defaults (8,192 and 2,048) only about the last 1,400 characters below the cap reach it.
+- Housekeeping: removed `unused/lexical.sqlite3` from the working tree (ignored by git; created by my own T3-repair
+  test run before those tests moved to temporary directories). Logged one cosmetic item in BACKLOG (the conversation
+  title for a Document + Question message).
+- Release steps after the last commit: fast-forward `RAG-SUM-GRAPH` to the T6 head and push; tag `v0.2.0` there and
+  push the tag; delete the merged tranche branches `t1-bounded-overflow-extraction`, `t2-store-seam`, `t3-rag-default`,
+  `t4-harden`, `t5-measure` and `t6-release`, locally and on `origin`, after checking each is contained in
+  `RAG-SUM-GRAPH`. `origin/rag-implementation` is not a tranche branch and is left alone. The commands and output are
+  in the final report to the USER.
+
+## Project complete (v0.2.0, 2026-10-05)
+
+The context-scaling prototype described in `docs/PROJECT-CHARTER.md` is complete. T0 through T6 are parked and
+accepted (T6 by these instructions; the final merge is the USER's): bounded overflow extraction with source-linked,
+verifiable provenance; the memory store seam with SQLite and FTS5 tiers, on by default; hardening; measurement on five
+local models; and this release. `RAG-SUM-GRAPH` carries every tranche and is tagged `v0.2.0`. The USER merges it into
+`main`.
+
+Named limitations carried forward: two T5 exit thresholds missed (answer passage found in 100% of fixtures for models
+of 1.5B and up; 7/8 for 0.5B); small models can answer wrongly without any warning; the fallback is not reachable from
+the page at large `num_ctx`; llama.cpp tested only against a scripted fake.
+
+Deferred list (do not build without new evidence and a new, approved tranche):
+- History-overflow condensing (summarizing old turns in place).
+- Reuse cache table for extracted overflow spans.
+- Graph construction and rehydration.
+- Larger-model routing for the overflow fallback (for example: extract with a small model, answer with a larger one).
+- Relevance-cutoff tuning or query-composition changes (T5 numbers did not show them hurting).
+- Hybrid vector + lexical ranking.
+- Cross-conversation retrieval.
+- New input formats for the overflow fallback, beyond the `Question:` shape.
+- Automatic strategy learning; arbitrary plugin registries; multi-model fallback for overflow; cloud services or sync.
+- Everything else in `docs/BACKLOG.md`, including: a real llama.cpp server smoke; WAL on the event store (only if a lock
+  error is reproduced); a "dropped" stream marker for slow clients; bounding the estimator samples; the startup
+  embedding-model check and per-reply reconcile threads; the Document + Question conversation title.
 
 ## Parked: T5 Measure and Compose
 
