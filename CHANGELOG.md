@@ -20,6 +20,7 @@ Pre-merge fixes from the release audit. No new features.
   long turns.
 - The `store_reason` status field in the API and configuration docs.
 - Five audit items in `docs/BACKLOG.md`, not implemented.
+- `docs/HISTORY.md`: the repository's three epochs (0.1.0, RAG v1.0, context scaling) and how they join on `main`.
 
 ## 0.2.0 (2026-10-05)
 

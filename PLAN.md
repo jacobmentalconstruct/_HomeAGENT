@@ -161,6 +161,10 @@ policy above. Applied in T2.
 ## Current work: T7 Pre-merge audit fixes
 
 Status: **approved by USER as declared (2026-10-05), with three refinements; in progress.**
+USER-approved addition (2026-10-05): create `docs/HISTORY.md` (three epochs, E-numbering), link it from the README,
+and test that every tag it names is listed (`HistoryDocTests` in `tests/test_t7_audit_fixes.py`). The epoch tags and
+the join onto `main` happen after `v0.2.1` is pushed, on the USER's go. Correction to the draft: `dfcc9f1` is not an
+exact snapshot of epoch 2 (seven files differ from `62be955`); HISTORY.md says so.
 Refinements recorded: (1) the control-character status test first forces the vector tier down so the keyword tier is
 serving; (2) the version test asserts `__version__` equals the newest CHANGELOG heading; (3) the atomic-write failure
 tests also assert no temporary file is left behind. The USER independently confirmed the eval fixtures have no closing

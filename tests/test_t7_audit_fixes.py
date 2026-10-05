@@ -191,5 +191,39 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn(needle, entry)
 
 
+HISTORY_TAGS = {"epoch-1-harness-0.1.0": "dc623ae", "epoch-2-rag-v1.0": "62be955", "v0.2.0": "fd7c60c", "v0.2.1": None}
+
+
+def history_tags():
+    """Tag names listed after "tag:" or "tags:" in docs/HISTORY.md."""
+    found = set()
+    for match in re.finditer(r"tags?: ([\w.\-]+(?:, [\w.\-]+)*)", read("docs", "HISTORY.md")):
+        found.update(name.strip() for name in match.group(1).split(","))
+    return found
+
+
+class HistoryDocTests(unittest.TestCase):
+    def test_history_lists_every_agreed_tag_and_the_readme_links_it(self):
+        self.assertEqual(history_tags(), set(HISTORY_TAGS))
+        history = read("docs", "HISTORY.md")
+        for label in ("E2-T1", "E3-T4", "Epoch 1", "Epoch 2", "Epoch 3", "historical"):
+            self.assertIn(label, history)
+        self.assertIn("(docs/HISTORY.md)", read("README.md"))
+
+    def test_tags_that_exist_point_at_the_commits_the_history_names(self):
+        import shutil
+        import subprocess
+        if not shutil.which("git") or not (ROOT / ".git").exists():
+            self.skipTest("no git checkout")
+        for tag, commit in HISTORY_TAGS.items():
+            done = subprocess.run(["git", "rev-parse", "--verify", "--quiet", f"{tag}^{{commit}}"], cwd=ROOT,
+                                  capture_output=True, text=True)
+            if done.returncode != 0 or commit is None:
+                continue  # the epoch tags are created after the push; v0.2.1 is the tag this tranche makes
+            with self.subTest(tag=tag):
+                self.assertTrue(done.stdout.strip().startswith(commit), (tag, done.stdout.strip()))
+            self.assertIn(commit, read("docs", "HISTORY.md"))
+
+
 if __name__ == "__main__":
     unittest.main()

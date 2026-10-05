@@ -102,6 +102,7 @@ The server uses plain HTTP with one shared token. That is reasonable on a home n
 - [Eval results](docs/EVAL-RESULTS.md): the overflow fallback measured on five local models
 - [Smoke matrix](docs/SMOKE-MATRIX.md): live checks recorded for the 0.2.0 release
 - [Changelog](CHANGELOG.md)
+- [Project history](docs/HISTORY.md): the three epochs of this repository and how they join
 
 ## Tests
 
