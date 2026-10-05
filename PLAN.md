@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. T4 accepted (USER, 2026-10-05). T5 parked on t5-measure, awaiting USER acceptance; T6 not started.
+3. T5 accepted (USER, 2026-10-05); RAG-SUM-GRAPH pushed at the T5 head. T6 Release declared on t6-release.
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -119,7 +119,7 @@ complete. Full T3–T6 scopes, non-goals, and exit criteria are in
 - [x] **T4** (accepted by USER 2026-10-05) Full suite green; `verify_derived` pure function tested; overflow config switch tested;
   page shows derived block (textContent only); memory bounded re-probe tested; dependency table in
   ARCHITECTURE; parked on `t4-harden`.
-- [x] **T5** (parked; awaiting USER acceptance; two thresholds missed and recorded as named limitations) Eight eval fixtures run against five models; results in `docs/`; prompt-composition
+- [x] **T5** (accepted by USER 2026-10-05; two thresholds missed and recorded as named limitations) Eight eval fixtures run against five models; results in `docs/`; prompt-composition
   winner chosen by numbers; page has Document + Question fields; exit thresholds met or recorded
   as named limitations; parked on `t5-measure`.
 - [ ] **T6** Version 0.2.0 bumped; short CHANGELOG written; full suite from fresh clone with and
@@ -158,9 +158,55 @@ The charter invariant "The local privacy boundary and optional-dependency behavi
 force unless a specific future tranche changes them" will be updated to reference the dependency
 policy above. Applied in T2.
 
-## Current work: T5 Measure and Compose
+## Current work: T6 Release
 
-Status: **parked as `T5:`; awaiting USER acceptance. T6 not started.**
+Status: **declared by USER instruction (2026-10-05); in progress. Stop after the tag; the USER merges to `main`.**
+Branch: `t6-release` (off `RAG-SUM-GRAPH` at the T5 head `b6a32dd`, which was pushed to `origin/RAG-SUM-GRAPH`
+at the start of T6: `71ebc12..b6a32dd`, a fast-forward through T3, T4 and T5).
+USER instruction recorded: push `RAG-SUM-GRAPH` after each accepted tranche.
+
+Scope: `docs/CLOSEOUT-SCOPE.md` T6 items 1-8, plus these USER additions (2026-10-05):
+- A. README and ARCHITECTURE say plainly that small models can answer wrongly without any warning when extraction finds
+  some passages but not the answer, cite the four silent-wrong cells in `docs/EVAL-RESULTS.md`, recommend 4B or larger,
+  and link the eval results.
+- B. Document the effective size ceilings: the 20,000-character message cap against the prompt budget at `num_ctx` 2048,
+  4096, 8192 and 16384, and the chunk-cap limit.
+- C. State that the `small_ends` default was chosen by the pre-declared rule on a near-tie.
+- D. The live smoke matrix includes a real message sent through the Document + Question fields in the browser, the three
+  memory conditions, `--backlog 800`, the overflow smoke and the eval summary.
+- E. CHANGELOG, version 0.2.0, full suite from a fresh clone with and without chromadb, tag `v0.2.0`, delete merged
+  branches, PLAN.md "project complete" with the deferred list.
+
+Non-goals: new features; anything not listed. Code changes are limited to the version string and a "silent wrong
+answers" section in the generated eval report (so the four cells are listed where they are cited).
+
+Acceptance bullet -> named test or recorded artifact (tests in `tests/test_t6_release.py`):
+- 1 final doc pass, derived text in the event log in plaintext, no graph: `ReleaseDocsTests.
+  test_security_says_derived_text_is_stored_in_plaintext_in_the_event_log`, `.test_architecture_says_no_graph_is_built`;
+  the doc pass findings are recorded in the parking entry.
+- 2 version 0.2.0 and CHANGELOG: `ReleaseTests.test_version_is_0_2_0`, `.test_changelog_has_a_0_2_0_entry`
+- 3 fresh clone, with and without chromadb: recorded artifact (commands and results in `docs/SMOKE-MATRIX.md` and below)
+- 4 live smoke matrix: recorded artifact `docs/SMOKE-MATRIX.md`; `ReleaseDocsTests.test_smoke_matrix_lists_every_required_run`
+- 5 PLAN.md final park: `ReleaseDocsTests.test_plan_says_project_complete_and_lists_the_deferred_items`
+- 6 delete merged branches; 7 tag `v0.2.0`: recorded (commands and output in the final report; done after the last commit)
+- A silent wrong answers: `ReleaseDocsTests.test_readme_and_architecture_warn_about_silent_wrong_answers`,
+  `EvalReportTests.test_the_report_lists_silent_wrong_answers`, `.test_the_committed_report_lists_the_four_cells`
+- B size ceilings: `ReleaseDocsTests.test_size_ceilings_match_the_code`, `.test_the_chunk_cap_ceiling_is_documented`
+- C near-tie: `ReleaseDocsTests.test_docs_say_small_ends_was_chosen_by_the_rule_on_a_near_tie`
+- D smoke matrix contents: `ReleaseDocsTests.test_smoke_matrix_lists_every_required_run`
+- E covered by 2, 3, 5, 6, 7.
+
+Progress:
+- [x] Push RAG-SUM-GRAPH at the T5 head; branch; declare T6; map bullets
+- [ ] Failing tests written and shown red
+- [ ] Version, CHANGELOG, report section, doc pass (A, B, C)
+- [ ] Live smoke matrix (D) recorded in `docs/SMOKE-MATRIX.md`
+- [ ] Fresh clone suite, with and without chromadb
+- [ ] PLAN.md "project complete"; fast-forward and push RAG-SUM-GRAPH; tag and push `v0.2.0`; delete merged branches; stop
+
+## Parked: T5 Measure and Compose
+
+Status: **accepted by USER (2026-10-05).**
 Branch: `t5-measure` (off the T4 head `b6d0a94`). Scope source: `docs/CLOSEOUT-SCOPE.md` T5 items 1-4.
 Note: `origin/RAG-SUM-GRAPH` was still at the T2 head `71ebc12`; local `RAG-SUM-GRAPH` was fast-forwarded to
 `t4-harden` (not pushed) so T5 branches off T4.
