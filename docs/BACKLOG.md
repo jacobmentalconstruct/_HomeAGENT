@@ -14,10 +14,10 @@ Items promoted to a tranche are removed from this list when that tranche is decl
 - Cross-conversation retrieval.
 - New input formats for overflow fallback (beyond the declared `Question:` shape).
 - llama.cpp real-server smoke: only scripted-fake coverage; no recorded real-server run.
-- Chroma reactive-path integration test with a real Chroma server (T2 covers contract tests against the fake client; a real-Chroma reactive retry path has no recorded test).
+- Chroma reactive-path integration test against a real Chroma server (no recorded smoke for the overflow-retry path with a live Chroma index).
 - Bounded query context improvement for retrieval (MEMORY_WATCHLIST.md item 1).
 - Relevance filtering with calibrated distance cutoff (MEMORY_WATCHLIST.md item 2).
-- Transient-degraded recovery with bounded re-probe and backoff (MEMORY_WATCHLIST.md item 3).
+- Transient-degraded recovery with bounded re-probe and backoff (MEMORY_WATCHLIST.md item 3; covered by T4 item 6).
 - Automatic strategy learning.
 - Arbitrary plugin registries.
 - Multi-model fallback for overflow extraction.

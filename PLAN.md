@@ -159,14 +159,15 @@ policy above. Applied in T2.
 
 ## Current work: T2 Store Seam + SQLite Fallback
 
-Status: **declared; awaiting USER approval before implementation begins.**
-Branch: `t2-store-seam` (off `RAG-SUM-GRAPH`; not yet created).
+Status: **approved by USER (2026-10-05); item 3 amended with USER approval (2026-10-05).**
+Branch: `t2-store-seam` (off `RAG-SUM-GRAPH`).
 
 Expected outcome: `memory/cartridge.py` is split into orchestration, Chroma store, and SQLite
 vector store; a store contract is covered by the same test suite run against both; SQLite
-vector fallback is functionally equivalent to Chroma for same-conversation retrieval; `auto`
-selection tries Chroma then falls back to SQLite; the full suite is green with chromadb absent
-and present.
+vector fallback is functionally equivalent to Chroma for same-conversation retrieval;
+`memory.store` selects the preferred store (`chroma` default | `sqlite`); `memory.strict`
+(default false) enables fallback to the next tier on open failure; the full suite is green
+with chromadb absent and present.
 
 Scope:
 1. Split `memory/cartridge.py`: orchestration (reconcile, retrieve, state) stays; Chroma moves
@@ -174,12 +175,16 @@ Scope:
    `dimensions`/`set_dimensions`, `upsert`, `query` by conversation, `close`.
 2. SQLite store: `runtime/memory/vectors.sqlite3`; meta table (schema, embedding_identity,
    dimensions); rows keyed by event seq with conversation_id, role, text, and L2-normalized
-   float32 blob (array module); index on conversation_id; score by dot product;
-   distance = 1 − dot via heapq; thread-safe like EventStore.
-3. Selection: `memory.store` accepts `auto` (default) | `chroma` | `sqlite`. `auto` tries
-   Chroma (import + open), then SQLite. `chroma` is strict (degrade, no fallback). `sqlite`
-   never imports chromadb (test asserts it). Selection happens once at startup. Report `store`
-   and `store_reason` in status.
+   float32 blob (array module, little-endian regardless of host); index on conversation_id;
+   score by dot product; distance = 1 − dot via heapq; thread-safe like EventStore.
+3. Selection: `memory.store` accepts `chroma` (default) | `sqlite`; `memory.strict` (default
+   false) disables fallback. With `strict: false`, if the preferred store fails to open the
+   system tries the next tier: `chroma` falls back to `sqlite`. With `strict: true`, the
+   preferred store is used exclusively; failure degrades memory without fallback. `sqlite`
+   never imports chromadb (test asserts it). Existing configs with `"store": "chroma"` are
+   fully fault-tolerant by default. Selection happens once at startup. Report `store` and
+   `store_reason` in status.
+   Amendment approved: USER (2026-10-05); drops `auto`; adds `memory.strict`.
 4. Contract tests run the same suite against the SQLite store and the fake Chroma client:
    idempotent upsert, conversation scoping, distance ordering, reopen persistence, dimension
    and identity mismatch, missing-id detection. If chromadb is installed, also run against
@@ -193,22 +198,25 @@ retrieval-quality changes.
 Acceptance:
 - Full suite passes with chromadb absent AND present.
 - `sqlite` selection never imports chromadb (asserted by test).
+- `memory.strict: false` (default) causes `chroma` to fall back to `sqlite` on open failure; tested.
+- `memory.strict: true` degrades without fallback; tested.
 - Contract tests assert same behavior from both stores.
 - Benchmark results recorded in CONFIGURATION.
 - Chroma behavior is unchanged from T1 (existing tests still pass unmodified).
 - Status reports `store` and `store_reason`.
 
-Known risks: Chroma API surface requires exact match; float32 blob via `array` module is
-host-endian (must emit a rebuild message on mismatch); dot-product scoring must rank identically
+Known risks: Chroma API surface requires exact match; dot-product scoring must rank identically
 to cosine for L2-normalized vectors.
 
-Progress: (awaiting USER approval — item 0 done as planning commit)
+Progress: (approved — item 0 done as planning commit)
 - [x] Apply dependency policy to PROJECT-CHARTER.md (invariant) and ARCHITECTURE.md (add Dependency policy section)
+- [ ] Write contract test suite (failing) for both stores
 - [ ] Split cartridge.py into orchestration, chroma_store.py, and sqlite_store.py
-- [ ] Implement SQLite store with meta table, blob rows, dot-product query
-- [ ] Implement store selection logic and status reporting
-- [ ] Add contract test suite and run against both stores
-- [ ] Benchmark and document practical limits
+- [ ] Implement SQLite store with meta table, little-endian blob rows, dot-product query
+- [ ] Implement store selection logic (`memory.store`, `memory.strict`) and status reporting
+- [ ] Update config.py validation for `memory.store` and `memory.strict`
+- [ ] Update CONFIGURATION.md for `memory.store` (chroma|sqlite) and `memory.strict` (bool)
+- [ ] Add contract test suite and run against both stores; benchmark and document practical limits
 - [ ] Run full suite with chromadb absent and present; park with evidence
 
 ## Log
