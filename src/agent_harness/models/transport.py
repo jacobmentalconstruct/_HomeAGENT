@@ -71,14 +71,20 @@ class Transport:
         finally:
             conn.close()
 
-    def stream_lines(self, url: str, path: str, payload: dict) -> Iterator[str]:
+    def stream_lines(self, url: str, path: str, payload: dict,
+                     deadline: float | None = None) -> Iterator[str]:
         """POST JSON and yield the reply line by line, bounded by first-byte, idle and total waits."""
         t = self.timeouts
-        deadline = time.monotonic() + t.total
-        conn, base = self._connect(url, t.connect)
+        started = time.monotonic()
+        own_deadline = started + t.total
+        deadline = min(own_deadline, deadline) if deadline is not None else own_deadline
+        remaining = deadline - started
+        if remaining <= 0:
+            raise BackendError("deadline", "The generation-wide model deadline has expired.")
+        conn, base = self._connect(url, min(t.connect, remaining))
         first = True
         try:
-            conn.sock.settimeout(min(t.first_byte, t.total))
+            conn.sock.settimeout(min(t.first_byte, max(0.01, deadline - time.monotonic())))
             conn.request("POST", base + path, json.dumps(payload).encode("utf-8"),
                          {"Content-Type": "application/json", "Accept": "application/json"})
             resp = conn.getresponse()
@@ -87,7 +93,7 @@ class Transport:
             while True:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise BackendError("deadline", f"The reply was still running after {t.total:g}s.")
+                    raise BackendError("deadline", "The generation-wide model deadline expired.")
                 conn.sock.settimeout(min(t.first_byte if first else t.idle, remaining))
                 raw = resp.readline()
                 if not raw:
@@ -103,7 +109,7 @@ class Transport:
                     yield line
         except TimeoutError as exc:
             if time.monotonic() >= deadline - 0.01:
-                raise BackendError("deadline", f"The reply was still running after {t.total:g}s.") from exc
+                raise BackendError("deadline", "The generation-wide model deadline expired.") from exc
             reason, wait = ("timeout_first_byte", t.first_byte) if first else ("timeout_idle", t.idle)
             raise BackendError(reason, f"The backend sent nothing for {wait:g}s.") from exc
         except (http.client.HTTPException, OSError) as exc:

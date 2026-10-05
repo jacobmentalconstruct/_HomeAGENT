@@ -20,17 +20,18 @@ class LlamaCppBackend(Backend):
         except (KeyError, TypeError) as exc:
             raise BackendError("protocol_error", "The model list has an unexpected shape.") from exc
 
-    def chat(self, model: str, messages: list[dict], options: dict | None = None) -> ChatStream:
+    def chat(self, model: str, messages: list[dict], options: dict | None = None,
+             deadline: float | None = None) -> ChatStream:
         payload = {"model": model, "messages": messages, "stream": True,
                    "max_tokens": self._cap(options), "stream_options": {"include_usage": True}}
         if options and "temperature" in options:
             payload["temperature"] = options["temperature"]
-        return ChatStream(self._events(payload))
+        return ChatStream(self._events(payload, deadline))
 
-    def _events(self, payload: dict) -> Iterator[tuple[str, object]]:
+    def _events(self, payload: dict, deadline: float | None = None) -> Iterator[tuple[str, object]]:
         finish, usage = None, {}
         try:
-            for line in self.transport.stream_lines(self.config.url, "/v1/chat/completions", payload):
+            for line in self.transport.stream_lines(self.config.url, "/v1/chat/completions", payload, deadline):
                 if line.startswith("error:"):  # some builds send in-stream errors as their own SSE field
                     raise BackendError("protocol_error", f"The server reported an error: {line[6:].strip()[:200]}")
                 if not line.startswith("data:"):

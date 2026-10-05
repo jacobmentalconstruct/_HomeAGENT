@@ -261,6 +261,8 @@ async function follow(generationId, attempt = 0) {
         if (m.type === "snapshot") { turn.body.textContent = m.text; waiting(note, m); if (m.window) showWindow(m.window); finished = finished || end(turn, note, m); }
         else if (m.type === "position") note.textContent = m.position > 0 ? "Waiting for the model (" + m.position + " ahead)" : "";
         else if (m.type === "running") { note.textContent = ""; if (m.window) showWindow(m.window); }
+        else if (m.type === "progress") note.textContent = "Preparing context (" + m.completed + "/" + m.total + ")";
+        else if (m.type === "reset") turn.body.textContent = "";
         else if (m.type === "delta") { turn.body.textContent += m.text; scroll(); }
         else if (m.type === "done") finished = end(turn, note, { state: "done", summary: m.summary });
         else if (m.type === "failed") finished = end(turn, note, { state: "failed", error: m.error, text: m.error.partial_text });

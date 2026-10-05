@@ -74,7 +74,8 @@ class OllamaBackend(Backend):
             result.append([float(v) for v in vector])
         return result
 
-    def chat(self, model: str, messages: list[dict], options: dict | None = None) -> ChatStream:
+    def chat(self, model: str, messages: list[dict], options: dict | None = None,
+             deadline: float | None = None) -> ChatStream:
         sent = {"num_ctx": self.num_ctx, "num_predict": self._cap(options)}
         if options and "temperature" in options:
             sent["temperature"] = options["temperature"]
@@ -83,23 +84,36 @@ class OllamaBackend(Backend):
         # backend silently discard the beginning of an oversized request.
         payload = {"model": model, "messages": messages, "stream": True, "truncate": False, "options": sent,
                    "think": bool((options or {}).get("think", False)), "keep_alive": self.keep_alive}
-        return ChatStream(self._events(payload))
+        return ChatStream(self._events(payload, deadline))
 
-    def _events(self, payload: dict) -> Iterator[tuple[str, object]]:
-        for line in self.transport.stream_lines(self.config.url, "/api/chat", payload):
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise BackendError("protocol_error", f"Ollama sent a line that is not JSON: {line[:80]!r}") from exc
-            if not isinstance(obj, dict):
-                raise BackendError("protocol_error", f"Ollama sent an unexpected line: {line[:80]!r}")
-            if "error" in obj:
-                raise BackendError("protocol_error", f"Ollama reported an error: {obj['error']}")
-            text = (obj.get("message") or {}).get("content", "")
-            if text:
-                yield "text", text
-            if obj.get("done"):
-                yield "done", {"stop_reason": "truncated" if obj.get("done_reason") == "length" else "complete",
-                               "prompt_tokens": obj.get("prompt_eval_count"),
-                               "reply_tokens": obj.get("eval_count")}
-                return
+    def _events(self, payload: dict, deadline: float | None = None) -> Iterator[tuple[str, object]]:
+        try:
+            lines = self.transport.stream_lines(self.config.url, "/api/chat", payload, deadline)
+            for line in lines:
+                yield from self._parse_event(line)
+        except BackendError as exc:
+            detail = (exc.detail + " " + exc.message).lower()
+            if exc.status == 400 and any(marker in detail for marker in
+                                         ("input length exceeds the context length", "context length exceeded",
+                                          "exceeds the available context size")):
+                raise BackendError("context_exceeded", exc.message, status=exc.status, detail=exc.detail) from exc
+            raise
+
+    @staticmethod
+    def _parse_event(line: str) -> Iterator[tuple[str, object]]:
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise BackendError("protocol_error", f"Ollama sent a line that is not JSON: {line[:80]!r}") from exc
+        if not isinstance(obj, dict):
+            raise BackendError("protocol_error", f"Ollama sent an unexpected line: {line[:80]!r}")
+        if "error" in obj:
+            raise BackendError("protocol_error", f"Ollama reported an error: {obj['error']}")
+        text = (obj.get("message") or {}).get("content", "")
+        if text:
+            yield "text", text
+        if obj.get("done"):
+            yield "done", {"stop_reason": "truncated" if obj.get("done_reason") == "length" else "complete",
+                           "prompt_tokens": obj.get("prompt_eval_count"),
+                           "reply_tokens": obj.get("eval_count")}
+            return

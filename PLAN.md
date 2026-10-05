@@ -248,10 +248,9 @@ Fixture constants: `num_ctx=2048`, `max_reply_tokens=256`,
 settings. The ordinary near-limit fixture is sized below
 `budget_tokens(2048, 256)` and must be accepted unchanged.
 
-Now: implement the first acceptance item only on the T1 branch created from T0.
 Progress:
 - [x] Implement and test Ollama truncate control and near-limit regression.
-- [ ] Implement bounded extraction, shared queue/deadline, and progress stream.
+- [x] Implement bounded extraction, shared queue/deadline, and progress stream.
 - [ ] Implement provenance window record and API behavior.
 
 T1 task 1 evidence (2026-10-04): `OllamaBackend.chat` now sends top-level
@@ -265,10 +264,28 @@ guide documents the behavior. No real-model call was needed for this bounded
 request behavior check; the integrated local-model scenario remains in T1's
 later acceptance work.
 
-Now: commit task 1 on `t1-bounded-overflow-extraction` as
-`T1 wip: disable Ollama server truncation`, then continue with bounded extraction.
-- [ ] Add the three deterministic fixtures and verify all acceptance items.
+T1 task 1 checkpoint: commit `3a3b3cb` (`T1 wip: disable Ollama server truncation`)
+was pushed to `origin/t1-bounded-overflow-extraction`.
+
+T1 task 2 verification: focused backend, overflow, queue/deadline, chunk-cap,
+depth-cap, recovery, and architecture checks passed (11 tests). The local smoke
+script `python -B tests/ollama_overflow_smoke.py` passed on `qwen2.5:0.5b`: the
+raw fixture request was classified `context_exceeded`; the integrated fallback
+completed with answer `COBALT, VIOLET, and MARIGOLD.`, `prompt_eval_count=256`,
+derived depth 1, all three planted facts present, and source event/ranges/hash
+recorded. This is one successful run, not a general reliability claim for 0.5B
+extraction.
+
+Now: complete public provenance/API documentation and the full-suite review,
+then park T1 with verified evidence.
+- [x] Add the three deterministic fixtures and verify all acceptance items.
 - [ ] Run local 0.5B scenario, full suite, review, and park with evidence.
+
+#### Superseded pre-implementation notes (historical)
+
+The notes below document the initial probe and approval sequence; their
+implementation-status statements are historical and do not describe the
+current T1 state above.
 
 First task completed before proposal: confirm real Ollama overflow behavior.
 Evidence (Ollama 0.18.3, `qwen2.5:0.5b`, `num_ctx=2048`): with default

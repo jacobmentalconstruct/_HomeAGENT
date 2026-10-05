@@ -165,14 +165,25 @@ class FailureTests(Fakes):
                 self.assertEqual((err.reason, err.status, err.detail), ("http_error", 500, "backend exploded"))
                 self.assertIn("500", err.message)
 
-    def test_a_400_is_http_error_except_llamacpp_context_overflow(self):
+    def test_context_overflow_400_is_classified_only_for_recognized_backend_errors(self):
         body = "the request exceeds the available context size"
         self.assertEqual(self.failure("llamacpp", [("status", 400, body)]).reason, "context_exceeded")
         self.assertEqual(self.failure("llamacpp", [("status", 400, "bad json")]).reason, "http_error")
-        self.assertEqual(self.failure("ollama", [("status", 400, body)]).reason, "http_error")
+        self.assertEqual(self.failure("ollama", [("status", 400, "the input length exceeds the context length")]).reason,
+                         "context_exceeded")
+        self.assertEqual(self.failure("ollama", [("status", 400, "bad json")]).reason, "http_error")
 
 
 class RequestTests(Fakes):
+    def test_generation_deadline_is_shared_with_the_backend_transport(self):
+        fake = self.fake("ollama")
+        stream = self.backend("ollama", fake).chat("m:1", MESSAGES,
+                                                   deadline=time.monotonic() - 1)
+        with self.assertRaises(BackendError) as caught:
+            list(stream)
+        self.assertEqual(caught.exception.reason, "deadline")
+        self.assertEqual(fake.requests, [])
+
     def test_ollama_request_carries_num_ctx_and_the_reply_cap(self):
         fake, _s, _ = self.run_chat("ollama", ollama_reply(CHUNKS), num_ctx=4096, cap=256)
         sent = fake.requests[0]
