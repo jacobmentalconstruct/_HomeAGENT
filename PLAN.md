@@ -108,7 +108,7 @@ Binary pass/fail items derived from tranche exit criteria. All must be checked b
 complete. Full T3–T6 scopes, non-goals, and exit criteria are in
 [`docs/CLOSEOUT-SCOPE.md`](docs/CLOSEOUT-SCOPE.md).
 
-- [ ] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
+- [x] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
   `sqlite` selection never imports chromadb (asserted); Chroma behavior unchanged; benchmark recorded;
   parked on `t2-store-seam`.
 - [ ] **T3** Full suite green both ways; memory default-on for new configs; three-tier state machine
@@ -217,9 +217,21 @@ Progress: (approved — item 0 done as planning commit)
 - [x] Update config.py validation for `memory.store` and `memory.strict`
 - [x] Update CONFIGURATION.md for `memory.store` (chroma|sqlite) and `memory.strict` (bool)
 - [x] Add contract test suite and run against both stores; benchmark and document practical limits
-- [ ] Run full suite with chromadb absent and present; park with evidence
+- [x] Run full suite with chromadb absent and present; park with evidence
 
 ## Log
+
+- 2026-10-05 T2 parked on `t2-store-seam`. Full suite 229/229 with chromadb 1.3.5 installed
+  (151 s) and 229/229 with chromadb blocked via import-finder shim (153 s). All T2 acceptance
+  criteria met: store seam split (cartridge.py + chroma_store.py + sqlite_store.py); contract
+  tests pass against both stores (fake-client Chroma + real SQLite + real Chroma when installed);
+  SQLite benchmark recorded in CONFIGURATION.md (1k→58ms, 5k→290ms, 20k→1160ms, 768-dim);
+  memory.store/memory.strict config added and validated; status reports store and store_reason;
+  fallback logic: ValueError always re-raised, ImportError/OSError fall back unless strict=true.
+  Commands used for evidence:
+    python -m pytest tests/ -q --tb=short                     (chromadb present)
+    python -m pytest tests/ -q --tb=short -p conftest_no_chroma  (chromadb absent)
+  conftest_no_chroma.py (not committed) installs a sys.meta_path blocker before any import.
 
 - 2026-10-05 close-out plan declared: T2 declared and scope recorded in PLAN.md; T3–T6 full
   scopes, non-goals, and exit criteria recorded in docs/CLOSEOUT-SCOPE.md; dependency policy
