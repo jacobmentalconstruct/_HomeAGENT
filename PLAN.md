@@ -221,6 +221,18 @@ Progress: (approved — item 0 done as planning commit)
 
 ## Log
 
+- 2026-10-05 T2 repair 3 parked on `t2-store-seam`. Added 5 ConversationMemory-level
+  tests to tests/test_memory.py: (1) chroma strict=False unavailable → ready/sqlite/
+  store_reason set/retrieve works; (2) strict=True unavailable → degraded/_store=None;
+  (3) store_kind=sqlite → chromadb not imported (verified via recording find_spec hook
+  with sys.modules eviction/restore); (4) status() fields: store/store_reason present
+  for ready, fallback, and degraded; absent for disabled; (5) identity mismatch →
+  degraded/_store=None/store="chroma" (no fallback despite strict=False).
+  Evidence (2026-10-05, chromadb 1.3.5, Python 3.13.6):
+    present: python -B -m unittest discover -s tests → 239 OK (skipped=2) in 152 s
+    absent:  AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest discover -s tests
+             → 239 OK (skipped=2) in 152 s
+
 - 2026-10-05 T2 repair 2 parked on `t2-store-seam`. The earlier absent-run figure (231/231,
   T2 repair: commit) was not a real absent run: support.py used the legacy find_module/
   load_module finder protocol, which Python 3.12+ ignores; on 3.13.6 chromadb still
