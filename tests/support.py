@@ -12,15 +12,16 @@ if _BLOCK:
     _names = [n.strip() for n in _BLOCK.split(",") if n.strip()]
 
     class _BlockedFinder:
-        def find_module(self, fullname, path=None):
+        """Modern (PEP 451) meta-path finder; works on Python 3.4+ including 3.12+."""
+
+        def find_spec(self, fullname, path, target=None):
             if any(fullname == n or fullname.startswith(n + ".") for n in _names):
-                return self
+                raise ModuleNotFoundError(
+                    f"{fullname} blocked by AGENT_HARNESS_BLOCK_MODULES={_BLOCK}")
+            return None
 
-        def load_module(self, fullname):
-            raise ImportError(
-                f"{fullname} blocked by AGENT_HARNESS_BLOCK_MODULES={_BLOCK}")
-
-    for _k in [k for k in sys.modules if any(k == n or k.startswith(n + ".") for n in _names)]:
+    for _k in [k for k in sys.modules
+               if any(k == n or k.startswith(n + ".") for n in _names)]:
         del sys.modules[_k]
 
     sys.meta_path.insert(0, _BlockedFinder())

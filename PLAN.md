@@ -221,21 +221,34 @@ Progress: (approved — item 0 done as planning commit)
 
 ## Log
 
+- 2026-10-05 T2 repair 2 parked on `t2-store-seam`. The earlier absent-run figure (231/231,
+  T2 repair: commit) was not a real absent run: support.py used the legacy find_module/
+  load_module finder protocol, which Python 3.12+ ignores; on 3.13.6 chromadb still
+  imported successfully and TestRealChromaOrdering ran and passed. Fixed by replacing
+  with a PEP 451 find_spec finder that raises ModuleNotFoundError for blocked names.
+  Added tests/test_support_blocker.py: three assertions — with env var set, importing
+  a blocked module raises ImportError and _HAS_CHROMADB is False (so TestRealChromaOrdering
+  skips); without env var, chromadb imports successfully when installed.
+  Evidence (2026-10-05, chromadb 1.3.5, Python 3.13.6):
+    present: python -B -m unittest discover -s tests → 234 OK (skipped=2) in 151 s
+      skipping: TestBlockerActive (2 tests, AGENT_HARNESS_BLOCK_MODULES not set)
+    absent:  AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest discover -s tests
+             → 234 OK (skipped=2) in 150 s
+      skipping: TestRealChromaOrdering (chromadb absent) + TestBlockerInactive (var set)
+      passing: TestBlockerActive confirming _HAS_CHROMADB=False and ImportError raised
+
 - 2026-10-05 T2 repair parked on `t2-store-seam` (see T2 repair: commit). Full suite 231/231
-  with chromadb 1.3.5 installed (152 s) and 231/231 with chromadb blocked via
-  AGENT_HARNESS_BLOCK_MODULES=chromadb (152 s). Repairs applied: SqliteStore L2-normalises
+  with chromadb 1.3.5 installed (152 s). NOTE: the concurrent "absent" run (231/231) used the
+  broken legacy finder (find_module) that Python 3.13 ignores and was not a real absent run;
+  superseded by T2 repair 2 entry above. Repairs from T2 repair: SqliteStore L2-normalises
   vectors at upsert and query (guard for zero vectors); query is locked like writes; fake Chroma
   client in contract tests normalises and uses true cosine; non-unit-vector contract test added
   (8th assertion, run against both stores); TestRealChromaOrdering includes a non-unit vector;
-  tests/support.py honours AGENT_HARNESS_BLOCK_MODULES env var (committed); test_memory.py was
-  adapted not unmodified (patch path, _store.dimensions(), strict=True for degradation test);
-  fallback: any non-ValueError exception falls back to sqlite unless strict=true; ValueError
-  (identity/schema mismatch) is a config error and never falls back; CONFIGURATION.md prose
-  corrected to match benchmark numbers and documents mismatch-no-fallback behaviour;
-  _projectmapper/ added to .gitignore.
-  Commands:
-    python -B -m unittest discover -s tests                                  (chromadb present)
-    AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest discover -s tests  (absent)
+  test_memory.py was adapted not unmodified (patch path, _store.dimensions(), strict=True for
+  degradation test); fallback: any non-ValueError exception falls back to sqlite unless
+  strict=true; ValueError (identity/schema mismatch) is a config error and never falls back;
+  CONFIGURATION.md prose corrected to match benchmark numbers and documents
+  mismatch-no-fallback behaviour; _projectmapper/ added to .gitignore.
 
 - 2026-10-05 close-out plan declared: T2 declared and scope recorded in PLAN.md; T3–T6 full
   scopes, non-goals, and exit criteria recorded in docs/CLOSEOUT-SCOPE.md; dependency policy
