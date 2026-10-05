@@ -45,7 +45,7 @@ If these conditions pass, park the proof and evaluate observed gaps before addin
 - Summaries, embeddings, extracted facts, graphs, clusters, and other interpretations are derived artifacts. They carry provenance and must not silently rewrite source history.
 - Recent context and the newest user's instruction or question are protected by prompt-budget rules. Oversized payload text may be transformed only while retaining provenance.
 - Preprocessing and retrieval failures must not corrupt history or make the ordinary chat path unusable.
-- The local privacy boundary and optional-dependency behavior remain in force unless a specific future tranche changes them.
+- The local privacy boundary remains in force. Third-party dependencies follow the dependency policy: each requires a runtime dynamic import, a stdlib or alternative backup path, an actionable status reason and fix text, and tests with the dependency absent and present. The core chat path has no hard third-party import; optional components degrade through backup tiers, never to a dead feature unless every tier fails.
 - Every new abstraction must support a current acceptance criterion; extension points without a demonstrated use stay deferred.
 
 ## Current constraints

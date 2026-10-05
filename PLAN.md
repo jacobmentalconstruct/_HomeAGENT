@@ -3,25 +3,24 @@
 ## State in 10 lines
 
 ```text
-1. Direction: context scaling; product purpose and stop conditions: docs/PROJECT-CHARTER.md.
-2. Proof: protect a final Question in one oversized user message and answer from its document payload.
-3. Shape: explicit final `Question:` only; no arbitrary instruction or format inference.
-4. Trigger: preflight first; one reactive context retry on Ollama only.
-5. Transform: overlapping, source-exact spans; snap/merge at line or sentence granularity.
-6. Bounds: 8 chunks per pass (overlap counts), 16 extraction/reduce calls, depth 4, shared deadline.
-7. Trace: assistant `window.derived` records source event, hash, ranges, and transformed text.
-8. Exclusions: no cache, graph, larger-model route, Chroma changes, or generalized ingestion.
-9. T1 status: accepted and fast-forwarded to `RAG-SUM-GRAPH`; details/evidence are in Log.
-10. `main` remains on the prior RAG v1.0 line; next direction change requires USER approval.
+1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
+2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
+3. T2 declared, awaiting USER approval: store seam + SQLite vector fallback (see declaration below).
+4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
+5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
+6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
+7. docs/BACKLOG.md is the deferred and out-of-scope parking lot.
+8. T3–T6 declared and provisionally scoped; each becomes active only after USER approval.
+9. main remains unchanged; not touched until the USER merges at T6.
+10. Never record an unrun check as passed; report exact commands and results at every park.
 ```
 
-## Active direction: context scaling (2026-10-04)
+## Active direction: close-out to v0.2.0 (2026-10-05)
 
-The active project purpose and prototype stop conditions are in
-[`docs/PROJECT-CHARTER.md`](docs/PROJECT-CHARTER.md). That charter supersedes the
-former _RAG_v1.0 target and its non-goals. The completed RAG work remains part of
-the codebase and its record below is preserved as historical reference; it is
-not the active roadmap.
+T1 is accepted; the prototype stop conditions in [`docs/PROJECT-CHARTER.md`](docs/PROJECT-CHARTER.md)
+are met. The active direction is a five-tranche close-out (T2–T6) that ends with a tagged v0.2.0
+release on `RAG-SUM-GRAPH` and a USER-performed merge to `main`. Former direction, RAG, and T1
+history are preserved below as historical reference and are not the active roadmap.
 
 ### Current state details
 
@@ -103,7 +102,122 @@ T0 verification and close-out (2026-10-04):
 - T0 follow-up docs were committed as `fae95c1` and pushed before T1 began on
   `t1-bounded-overflow-extraction`.
 
+## Definition of Done (close-out checklist)
+
+Binary pass/fail items derived from tranche exit criteria. All must be checked before T6 is
+complete. Full T3–T6 scopes, non-goals, and exit criteria are in
+[`docs/CLOSEOUT-SCOPE.md`](docs/CLOSEOUT-SCOPE.md).
+
+- [ ] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
+  `sqlite` selection never imports chromadb (asserted); Chroma behavior unchanged; benchmark recorded;
+  parked on `t2-store-seam`.
+- [ ] **T3** Full suite green both ways; memory default-on for new configs; three-tier state machine
+  (ready/degraded/disabled); FTS5 lexical tier maintained and tested; live check on this machine:
+  Chroma importable, chromadb blocked, and embedding model unavailable; docs updated; parked on
+  `t3-rag-default`.
+- [ ] **T4** Full suite green; `verify_derived` pure function tested; overflow config switch tested;
+  page shows derived block (textContent only); memory bounded re-probe tested; dependency table in
+  ARCHITECTURE; parked on `t4-harden`.
+- [ ] **T5** Eight eval fixtures run against five models; results in `docs/`; prompt-composition
+  winner chosen by numbers; page has Document + Question fields; exit thresholds met or recorded
+  as named limitations; parked on `t5-measure`.
+- [ ] **T6** Version 0.2.0 bumped; short CHANGELOG written; full suite from fresh clone with and
+  without chromadb; live smoke matrix recorded; PLAN.md final park with "project complete" and
+  deferred list; git tag `v0.2.0`; USER merges `RAG-SUM-GRAPH → main`.
+
+## Guardrails
+
+- One tranche at a time; declare in PLAN.md, wait for USER approval, commit per task as
+  `T<n> wip: <task>`, park as `T<n>: <outcome>`.
+- Any idea or out-of-scope defect goes to `docs/BACKLOG.md` with one line. Do not fix it.
+- To add a task you must remove one or get USER approval. If a tranche outgrows its scope, stop
+  and ask; do not widen it.
+- New behavior needs a failing test or fixture first.
+- After T5 parks, only release tasks and confirmed release-blockers are allowed. A
+  release-blocker is a failing test, data loss, wrong provenance, a false privacy/security
+  claim, or a crash.
+- Never record an unrun check as passed. Report exact commands and results at every park.
+
+## Approved policies (USER, 2026-10-05)
+
+### Dependency policy
+
+Third-party dependencies are welcome when each has: (1) a runtime dynamic import, never a
+static one; (2) a stdlib or alternative backup path; (3) an actionable status reason and fix
+text; (4) tests with the dependency both absent and present. The core chat path has no hard
+third-party import. Conversation memory is ON by default for new configs, uses Chroma when
+available, and degrades through backups, never to a dead feature unless every tier fails.
+
+This policy replaces the charter line "optional-dependency behavior remains in force" and will
+be added to `docs/PROJECT-CHARTER.md` and `docs/ARCHITECTURE.md` as part of T2 implementation.
+
+### Charter invariant change
+
+The charter invariant "The local privacy boundary and optional-dependency behavior remain in
+force unless a specific future tranche changes them" will be updated to reference the dependency
+policy above. Applied in T2.
+
+## Current work: T2 Store Seam + SQLite Fallback
+
+Status: **declared; awaiting USER approval before implementation begins.**
+Branch: `t2-store-seam` (off `RAG-SUM-GRAPH`; not yet created).
+
+Expected outcome: `memory/cartridge.py` is split into orchestration, Chroma store, and SQLite
+vector store; a store contract is covered by the same test suite run against both; SQLite
+vector fallback is functionally equivalent to Chroma for same-conversation retrieval; `auto`
+selection tries Chroma then falls back to SQLite; the full suite is green with chromadb absent
+and present.
+
+Scope:
+1. Split `memory/cartridge.py`: orchestration (reconcile, retrieve, state) stays; Chroma moves
+   to `memory/chroma_store.py`; add `memory/sqlite_store.py`. Store interface: `open`, `ids`,
+   `dimensions`/`set_dimensions`, `upsert`, `query` by conversation, `close`.
+2. SQLite store: `runtime/memory/vectors.sqlite3`; meta table (schema, embedding_identity,
+   dimensions); rows keyed by event seq with conversation_id, role, text, and L2-normalized
+   float32 blob (array module); index on conversation_id; score by dot product;
+   distance = 1 − dot via heapq; thread-safe like EventStore.
+3. Selection: `memory.store` accepts `auto` (default) | `chroma` | `sqlite`. `auto` tries
+   Chroma (import + open), then SQLite. `chroma` is strict (degrade, no fallback). `sqlite`
+   never imports chromadb (test asserts it). Selection happens once at startup. Report `store`
+   and `store_reason` in status.
+4. Contract tests run the same suite against the SQLite store and the fake Chroma client:
+   idempotent upsert, conversation scoping, distance ordering, reopen persistence, dimension
+   and identity mismatch, missing-id detection. If chromadb is installed, also run against
+   real Chroma and assert same top-k order for same vectors; otherwise skip.
+5. Benchmark and record (do not gate) SQLite retrieval time at 1k, 5k, and 20k vectors; state
+   the documented practical limit in CONFIGURATION.
+
+Non-goals: default-on (T3), lexical tier (T3), banner or status-page changes (T3),
+retrieval-quality changes.
+
+Acceptance:
+- Full suite passes with chromadb absent AND present.
+- `sqlite` selection never imports chromadb (asserted by test).
+- Contract tests assert same behavior from both stores.
+- Benchmark results recorded in CONFIGURATION.
+- Chroma behavior is unchanged from T1 (existing tests still pass unmodified).
+- Status reports `store` and `store_reason`.
+
+Known risks: Chroma API surface requires exact match; float32 blob via `array` module is
+host-endian (must emit a rebuild message on mismatch); dot-product scoring must rank identically
+to cosine for L2-normalized vectors.
+
+Progress: (awaiting USER approval — item 0 done as planning commit)
+- [x] Apply dependency policy to PROJECT-CHARTER.md (invariant) and ARCHITECTURE.md (add Dependency policy section)
+- [ ] Split cartridge.py into orchestration, chroma_store.py, and sqlite_store.py
+- [ ] Implement SQLite store with meta table, blob rows, dot-product query
+- [ ] Implement store selection logic and status reporting
+- [ ] Add contract test suite and run against both stores
+- [ ] Benchmark and document practical limits
+- [ ] Run full suite with chromadb absent and present; park with evidence
+
 ## Log
+
+- 2026-10-05 close-out plan declared: T2 declared and scope recorded in PLAN.md; T3–T6 full
+  scopes, non-goals, and exit criteria recorded in docs/CLOSEOUT-SCOPE.md; dependency policy
+  and charter invariant change approved by USER (2026-10-05); docs/BACKLOG.md created; T2
+  awaiting USER approval. Planning fixes: dependency policy applied to PROJECT-CHARTER.md and
+  ARCHITECTURE.md; T1 heading renamed to Completed work; BACKLOG.md corrected.
 
 - 2026-10-04 T0 parked: project documentation re-based to context scaling.
   Acceptance met. Changed files: `PLAN.md`, `README.md`,
@@ -242,7 +356,7 @@ T0 verification and close-out (2026-10-04):
 - T0 checkpoint: commit `fae95c1` (`T0 wip: align context scaling plan`) was
   pushed to `origin/RAG-SUM-GRAPH` before T1 began.
 
-## Current work: T1 bounded overflow extraction repair
+## Completed work: T1 bounded overflow extraction repair
 
 Approved: T1 reopen (USER, 2026-10-04)
 

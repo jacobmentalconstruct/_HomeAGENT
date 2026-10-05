@@ -84,7 +84,20 @@ The panel starts `harness.py serve` as a child process and talks to it over the 
 
 ## Choices worth knowing
 
-- **One optional dependency.** Ordinary chat uses Python's standard library; the conversation memory cartridge needs Chroma when enabled.
+- **Dependency policy.** Third-party dependencies are welcome when each has: (1) a runtime dynamic import, never a static one; (2) a stdlib or alternative backup path; (3) an actionable status reason and fix text; (4) tests with the dependency absent and present. The core chat path has no hard third-party import. Conversation memory degrades through backup tiers rather than failing completely; see *Dependency policy* below.
 - **One process, threads for replies.** A home GPU serves a few people, so a simple threaded server is enough.
 - **Plain JavaScript, no build step.** The page is one file, and renders all text as text, never as HTML.
 - **Keep backends on localhost.** Only this server needs to be reachable from your network. _HomeAGENT does not change how Ollama or llama.cpp listen (both default to localhost).
+
+## Dependency policy
+
+Third-party dependencies are welcome when each meets all four conditions: a runtime dynamic
+import (never a static import at module level), a stdlib or alternative backup path, an
+actionable status reason with fix text shown to the operator, and tests that run with the
+dependency both absent and present. The core chat path must have no hard third-party import.
+
+Optional components degrade through backup tiers rather than to a dead feature. Using a backup
+tier is state `ready` with a reported store and reason, not `degraded`. `degraded` means every
+tier failed.
+
+A full table of external dependencies and their backup paths will be added in T4.
