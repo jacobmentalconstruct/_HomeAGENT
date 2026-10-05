@@ -147,7 +147,9 @@ Scope:
    stored in the event log in plaintext; no graph is built.
 2. Version bump to 0.2.0 with a short CHANGELOG.
 3. Full suite from a fresh clone with and without chromadb installed.
-4. Live smoke matrix recorded.
+4. Live smoke matrix recorded, including the memory runs: `python -B -m tests.live_memory_probe`
+   (three conditions) and `--backlog 800` (retrieve time during catch-up, and total catch-up time).
+   Timings are evidence about the machine, not pass or fail; nothing is gated on them.
 5. PLAN.md final park: "project complete" with the deferred list.
 6. Delete merged feature branches (tranche branches fast-forwarded into `RAG-SUM-GRAPH`).
 7. Git tag `v0.2.0`.

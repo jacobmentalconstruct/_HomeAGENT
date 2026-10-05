@@ -28,3 +28,5 @@ Items promoted to a tranche are removed from this list when that tranche is decl
 - Bound the token estimator's learned samples (use a deque).
 - In-memory projection of the full event history at boot (v2): startup reads and replays everything.
 - TLS and token rate limiting (already documented as not provided in SECURITY.md).
+- Partial vector results during catch-up: if the vector index holds some but not all turns, retrieval queries only that partial set and does not blend in keyword results.
+- A turn that finishes while the startup catch-up is running may not reach the keyword index until the catch-up ends (retrieve skips its own indexing); cosmetic, since it is still in the recent-context window.

@@ -247,8 +247,18 @@ Test (written first, red at 2.81 s): `tests/test_t3_repair.py`
 catch-up still finishes and indexes everything).
 Evidence (2026-10-05): `python -B -m unittest discover -s tests` 282 tests OK (skipped 2), 158.3 s;
 `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest discover -s tests` 282 tests OK (skipped 2), 159.6 s.
-Not done: no live-Ollama timing of the fix; the timing test uses a fake slow embedder.
-T4 not started.
+Live timing (2026-10-05, this machine, real `nomic-embed-text:latest`, Chroma store, throwaway temp dir):
+`python -B -m tests.live_memory_probe --backlog 800` (new mode: seeds 800 turns, starts the catch-up,
+retrieves after 0.5 s, prints times). Result: `retrieve()` 0.221 s, served by `vector` from a partial
+index (96 of 800 vectors, 800 of 800 keyword rows at that moment); whole catch-up 7.73 s; afterwards
+tier `vector`, state `ready`. The reviewer's run on the same fix saw 0.00 s, keyword-served, 0 vectors at
+0.5 s; the difference is timing of the first embedding batch, not a code difference. Evidence about this
+machine, not pass or fail; nothing is gated on it. Added to the T6 live smoke matrix (CLOSEOUT-SCOPE item 4).
+BACKLOG: partial-vector retrieval during catch-up (no blending) and late keyword indexing of turns that
+finish during catch-up (cosmetic) added.
+Reviewer's remaining manual step (not done by the builder): open the page once with memory in fallback mode
+(`memory.store: "sqlite"` in a test config) to see the informational note, then fast-forward `RAG-SUM-GRAPH`.
+T4 not started; not declared.
 
 ## Superseded parking entry: T3 (first pass, not accepted)
 
