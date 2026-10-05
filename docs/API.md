@@ -56,22 +56,36 @@ When T1 overflow extraction is used, `window.derived` has this shape:
 ```json
 {
   "method": "extractive_map_reduce",
-  "version": 1,
+  "version": 2,
   "depth": 1,
-  "text": "The source sentences included with the reply...",
+  "text": "The source spans included with the reply...",
   "sources": [
     {"event_id": 51, "char_range": [120, 340], "source_sha256": "..."}
   ]
 }
 ```
 
-`depth` is 1 for the initial extraction pass or 2 when one bounded combine pass
-is needed. Progress uses phase `extract` for source chunks and `combine` for
-that optional second pass.
+`depth` is 1 for initial extraction and increments for recursive reduction,
+with a hard maximum of 4. `sources` includes half-open character ranges in the
+original user event; the question range comes from the parsed `Question:`
+offset. Version 2 validates whitespace-normalized exact source substrings,
+snaps matches outward to line/sentence units, and merges overlapping ranges.
+Progress uses phase `extract` for source chunks and `reduce-N` for later
+reduction levels. All model calls share a total-call cap and generation
+deadline.
 
 Character ranges are half-open offsets into the original event text. The source
 event remains authoritative; this field describes derived text included in the
 model prompt.
+
+The prototype accepts only a single oversized user message containing a
+document-like payload followed by a final explicit `Question:` section. It does
+not infer instructions from arbitrary messages or support arbitrary file
+formats. Preflight is the primary overflow trigger on supported backends; the
+single reactive retry is Ollama-only. An oversized system prompt fails
+immediately with `context_exceeded` because it is not a transformable user
+payload. Retrieval for an oversized message uses only a bounded question query,
+not the full document.
 
 If the reply was already over when you connected, you get just the snapshot, with `state` set to `done` or `failed`. Disconnecting never stops a reply.
 

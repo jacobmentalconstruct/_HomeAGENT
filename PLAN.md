@@ -167,17 +167,41 @@ T0 verification and close-out (2026-10-04):
 - T0 checkpoint: commit `fae95c1` (`T0 wip: align context scaling plan`) was
   pushed to `origin/RAG-SUM-GRAPH` before T1 began.
 
-## Current work: T1 bounded overflow extraction
+## Current work: T1 bounded overflow extraction repair
 
-Approved: T1 (USER, 2026-10-04; amended acceptance)
+Approved: T1 reopen (USER, 2026-10-04)
 
-Status: parked pending USER acceptance; built after the T0 documentation
-checkpoint.
+Status: repair implemented and verified; parked pending USER acceptance. Prior
+T1 evidence and implementation remain intact as the baseline. No merge is
+authorized.
+
+Amended repair scope:
+
+1. Preserve the existing `ContextTooLarge` diagnostic verbatim and append a
+   concise hint describing the supported explicit `Question:` input shape.
+2. Replace sentence-set matching with source-span matching: character-size
+   chunks with approximately 10–15% overlap, boundaries aligned to lines or
+   sentences when available, whitespace-normalized exact-substring validation,
+   outward snapping to enclosing source units, and merged source ranges. Add a
+   hard-wrapped, unpunctuated fixture.
+3. Replace the single combine pass with bounded recursive reduction. Each level
+   must strictly shrink the selected source text; cap total model calls, enforce
+   a depth backstop of four, and share the existing generation deadline.
+4. Record the question's exact source range from its parse offset rather than
+   searching for the marker again.
+5. Bound retrieval input for oversized user messages; do not embed/retrieve the
+   entire document payload.
+6. Fail immediately with `context_exceeded` when the system prompt itself is
+   too large; it is not an extractable user payload.
+7. Document supported shape limits and that reactive overflow retry is
+   Ollama-only; preflight remains the primary cross-backend trigger.
+8. Add focused tests for these repairs, rerun the full suite and local smoke,
+   then park the repair for USER acceptance without merging.
 
 Expected outcome: when one oversized user message contains a document payload
 followed by an explicit `Question:` section, the harness preserves the question
 verbatim, replaces only a bounded portion of the payload with question-focused
-source sentences, and answers a fixed fact question within the configured
+source spans, and answers a fixed fact question within the configured
 context. The reply window record shows the derived representation and its source
 provenance. Other chat behavior and the original event history remain usable.
 
@@ -188,23 +212,24 @@ Scope:
    unsupported oversized messages fail visibly.
 2. Keep preflight as the primary trigger at `ContextTooLarge`. Configure the
    Ollama chat request not to truncate server-side; recognize its specific
-   context-overflow response as one reactive fallback trigger. Permit only one
-   fallback attempt for a generation.
+   context-overflow response as one reactive fallback trigger on Ollama only.
+   Permit only one fallback attempt for a generation.
 3. Reserve 10% of the prompt budget each for verbatim payload text from the
-   beginning and end, ending at sentence boundaries. Split the middle into
-   context-fitting chunks, ask the selected local model at
-   temperature zero to copy only relevant source sentences, then combine those
-   sentences. Mechanically validate every candidate as a verbatim source
-   sentence (allowing whitespace normalization only); discard unsupported text
-   and fail visibly if no valid extraction remains. If needed, combine once
-   more; stop at depth two.
+   beginning and end, ending at available line/sentence boundaries. Split the
+   middle into size-based context-fitting chunks with 10–15% overlap. Ask the
+   selected local model at temperature zero to copy relevant source spans.
+   Mechanically validate each candidate as a whitespace-normalized exact source
+   substring, snap outward to enclosing units, and merge overlapping ranges.
+   If the final prompt remains too large, recursively reduce under strict
+   shrinkage, total-call, shared-deadline, and depth-four bounds.
 4. Keep extraction inside the existing per-model queue ticket and within one
    generation-wide total timeout, including extraction and final answer but
    excluding queue wait. Cap source chunks at 8; emit progress for completed
    extraction work through the existing generation stream.
-5. Fail with `context_exceeded` if the derived prompt still cannot fit or the
-   fallback cannot complete. Do not loop or stream a partial first attempt as
-   though it were the final answer.
+5. Fail with `context_exceeded` if the derived prompt still cannot fit, the
+   system prompt is oversized, no relevant source span exists, or any fallback
+   bound is reached. Do not loop or stream a partial first attempt as though it
+   were the final answer. Reactive retry is Ollama-only; preflight is primary.
 6. Add `window.derived` metadata to the assistant event: method, version,
    transformed text, source event IDs, character ranges, and a source hash. Add
    no Chroma documents, event kinds, or SQLite table in T1.
@@ -213,8 +238,8 @@ Scope:
 
 Non-goals: general instruction/payload inference; arbitrary file/document
 formats; multiple transformation types; cache table; graph or state tracking;
-larger-context model routing; multiple fallback models; summary trees or depth
-greater than two; Chroma changes; UI redesign; unrelated refactoring.
+larger-context model routing; multiple fallback models; unbounded or deeper than
+four-level reduction; Chroma changes; UI redesign; unrelated refactoring.
 
 Acceptance:
 
@@ -226,8 +251,8 @@ Acceptance:
   three required facts, fits the budget, and excludes enough filler to fit.
 - No model-generated extraction text is accepted unless it matches source text;
   temperature zero alone is not treated as a correctness guarantee.
-- Tests prove a non-overflowing request bypasses fallback, extraction depth
-  never exceeds two, source event IDs/ranges/hash and derived text are recorded,
+- Tests prove a non-overflowing request bypasses fallback, reduction depth
+  never exceeds four, source event IDs/ranges/hash and derived text are recorded,
   and a failed fallback leaves transcript history intact and a later ordinary
   message usable.
 - An ordinary near-limit conversation within the app's prompt budget succeeds
@@ -237,18 +262,56 @@ Acceptance:
 - Extraction runs under the existing queue ticket and completes, including the
   final answer, within one `timeouts.total` deadline. No more than 8 source
   chunks are processed, and the stream emits progress events as chunks finish.
-- A second fixture places a required fact mid-document among distractor
-  sentences; question-focused extraction retains that fact. A negative fixture
-  with no relevant source sentence fails visibly instead of inventing one.
+- A second fixture places a required fact mid-document among distractor lines;
+  question-focused extraction retains that fact. A hard-wrapped, unpunctuated
+  fixture exercises span offsets. A negative fixture with no relevant source
+  span fails visibly instead of inventing one.
 - A local Ollama request with `truncate=false` rejects the oversized raw fixture
   with a context error; the integrated fallback then answers the same fact
   question and records its provenance. Report the actual model answer and
   `prompt_eval_count`; do not infer semantic success from HTTP success alone.
-- A reported backend context error causes at most one fallback attempt. Other
-  backend errors are not mislabeled as overflow.
+- A reported backend context error causes at most one Ollama-only fallback
+  attempt. Other backend errors are not mislabeled as overflow.
 - `docs/API.md` documents `window.derived` and the extraction progress event.
 - Focused tests and the full suite pass; documentation states supported input
   shape, transformation limits, failure behavior, and that no reuse cache exists.
+
+Repair progress:
+- [x] Reopen T1 and record the amended scope and approval above.
+- [x] Replace sentence extraction with offset-preserving span matching and
+  overlap-aware chunks; add the hard-wrapped/unpunctuated fixture.
+- [x] Add bounded recursive reduction, total-call cap, depth-four backstop,
+  strict shrink checks, and shared-deadline coverage.
+- [x] Preserve overflow diagnostics, parse question offsets, bound retrieval,
+  fail fast on oversized system prompts, and limit reactive retry to Ollama.
+- [x] Update API/concept docs; full suite and local smoke pass; inspect and
+  park as `T1 repair:` without merging.
+- [ ] Await USER acceptance; do not merge unless separately authorized.
+
+T1 repair verification (2026-10-04):
+
+- Replaced sentence-set matching with offset-preserving spans, size-based
+  chunks with approximately 12% overlap, exact whitespace-normalized substring
+  checks, outward line/sentence snapping, and merged ranges. Added an
+  unpunctuated hard-wrapped fixture and tests for overlap, exact matching,
+  provenance, and the question range from the parse offset.
+- Added bounded recursive reduction with strict shrink checks per reduce level,
+  maximum depth four, a 16-call extraction/reduction cap, and the same
+  generation-wide deadline already shared with the final answer. Added
+  fail-closed call-cap coverage.
+- Preserved the original `ContextTooLarge` message and appends the supported
+  `Question:` shape hint when that shape is unsupported. Oversized system
+  prompts fail before retrieval; oversized-message retrieval uses only a
+  bounded question query. The reactive retry is now Ollama-only.
+- `python -B -m unittest discover -s tests -q` passed 211 tests in 148.665s.
+- `python -B tests/ollama_overflow_smoke.py` passed with local
+  `qwen2.5:0.5b`: raw request `context_exceeded`; integrated answer was
+  `The hidden project marker is VIOLET.`; `prompt_eval_count=315`; derived depth
+  1 and all planted fixture facts were present in source-backed prompt spans.
+  This is one local fixture/model result, not a general accuracy claim.
+- `git diff --check` passed. No event-log schema, cache, Chroma data, or history
+  changes were made. The implementation checkpoint is followed by the parking
+  documentation commit recorded in the log below. No merge was performed.
 
 Known risks: the 0.5B extractor may miss or miscopy relevant sentences despite
 temperature zero; chunk boundaries and character-range mapping need to be
