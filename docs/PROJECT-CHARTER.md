@@ -51,7 +51,7 @@ If these conditions pass, park the proof and evaluate observed gaps before addin
 ## Current constraints
 
 - Python harness with local Ollama as the exercised model path; llama.cpp adapter has scripted-fake coverage but no recorded real-server smoke.
-- Append-only SQLite conversation events are the durable source. Chroma is an optional, derived, conversation-scoped retrieval index.
+- Append-only SQLite conversation events are the durable source. The memory cartridge is a two-tier derived index: Chroma or SQLite dot-product (vector tier) and SQLite FTS5 (lexical tier). Memory is enabled by default; both tiers are conversation-scoped.
 - The current prompt window already selects the newest messages that fit and rejects a newest message that is itself too large. A fallback must be inserted into this actual composition/generation path, not assumed to wrap an arbitrary string prompt.
 - The architecture test currently forbids static third-party imports, import cycles, core-to-interface dependencies, and modules over 400 lines. Optional Chroma loading uses a dynamic import.
 - This project is developed in Git with a separate tranche branch and commits. Record the active branch and commit state in `PLAN.md`; historical branch references describe the earlier RAG development line.

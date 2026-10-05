@@ -118,6 +118,10 @@ class ReplyTests(Base):
             def status(self):
                 return {"enabled": True, "state": "ready", "indexed": 1, "error": ""}
 
+            def reconcile_in_background(self, events):
+                import threading
+                return threading.Thread(target=lambda: None, daemon=True)
+
         fake, runner = self.runner(ollama_reply(["first"]), ollama_reply(["recalled"]), memory=Memory())
         conv = self.conversations.create()
         runner.send(conv, "first", "ol:fake:1b").finished.wait(5)
@@ -136,6 +140,10 @@ class ReplyTests(Base):
 
             def status(self):
                 return {"enabled": True, "state": "degraded", "indexed": 0, "error": "Embedding service offline."}
+
+            def reconcile_in_background(self, events):
+                import threading
+                return threading.Thread(target=lambda: None, daemon=True)
 
         fake, runner = self.runner(ollama_reply(["ordinary reply"]), memory=Memory())
         conv = self.conversations.create()

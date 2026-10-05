@@ -18,7 +18,7 @@ for the originating proposal.
 └────────────────┘       │ conversation/: turns, replies, window                │
                          │ models/: Ollama and llama.cpp adapters               │
                          │ store/: SQLite event log                             │
-                         │ memory/: optional Chroma index ⇄ Ollama embeddings   │
+                         │ memory/: vector + FTS5 index ⇄ Ollama embeddings     │
                          │ models/ → local model servers                        │
                          └──────────────────────────────────────────────────────┘
 ```
@@ -35,7 +35,7 @@ for the originating proposal.
 | `conversation/manager.py` | Conversations and their turns, rebuilt from the log. |
 | `conversation/generation.py` | One reply per worker thread, and the first-come queue per model. |
 | `conversation/window.py` | Which messages fit in the model's context. |
-| `memory/cartridge.py` | Optional Chroma index, reconciled from recorded turns and queried only within the active conversation. |
+| `memory/cartridge.py` | Two-tier memory index (vector + FTS5 lexical), reconciled from recorded turns, queried only within the active conversation. |
 | `interfaces/web.py`, `page.html` | The HTTP server and the single-page chat. |
 | `interfaces/cli.py` | The command line. |
 | `interfaces/control.py`, `gui.py` | The control panel: its logic, and its window. |
@@ -46,7 +46,16 @@ The code is layered so that each part has one owner. Interfaces use the conversa
 
 Everything that happens is appended to a SQLite table (`conversation.created`, `turn.user`, `turn.assistant`, `generation.failed`). Nothing is edited or deleted. Each event also records who caused it: `USER` (a person), `AGENT` (the model's reply) or `SYSTEM` (the server, for example when a reply fails). The set of conversations, their titles and turns, and the last context window are all **rebuilt from the log at startup**. That keeps state simple, makes restarts safe, and means the record of what was said is never lost, even when old messages stop being sent to a model.
 
-When enabled, the memory cartridge indexes completed user and assistant turns as derived data. It uses Ollama's embedding endpoint and a persistent local Chroma collection. Before retrieval, it compares the event log with indexed event IDs and upserts missing turns, so interrupted indexing is repaired. A query is filtered by conversation ID. The index records its schema and embedding model identity; vector dimensions are checked against stored vectors. A mismatch degrades memory and asks the operator to rebuild the index from the event log. Memory failures do not stop chat.
+The memory cartridge is enabled by default and indexes completed user and assistant turns as derived data. It has two retrieval tiers:
+
+- **Vector tier**: uses Ollama embeddings and a Chroma (preferred) or SQLite dot-product store. Fast semantic similarity. Requires the embedding model to be available.
+- **Lexical tier (FTS5)**: SQLite full-text search with BM25 ranking. No extra packages. Used per-reply as a fallback when the embedding model is unavailable, and as the catch-up path during startup reconcile.
+
+Indexing happens in the background after each reply and at startup. A bounded batch prevents the first reply from stalling on a large backlog (`RECONCILE_BATCH` events per retrieve call). Before retrieval, missing turns are indexed from the event log so interrupted indexing is repaired. Queries are filtered by conversation ID.
+
+The index records its schema and embedding model identity; vector dimensions are checked against stored vectors. A mismatch raises a hard error and asks the operator to rebuild the index. Memory failures do not stop chat.
+
+**Status machine.** The cartridge reports `state` (`ready`, `degraded`, `disabled`), `tier` (`vector`, `lexical`), `reason` (machine-readable: `embedding_model_missing`, `index_incompatible`, `transient`, `all_tiers_failed`), and `fix` (human text). `ready` with a `lexical` tier means the vector tier is unavailable but FTS5 is serving. `degraded` means all tiers failed for that reply.
 
 Retrieved excerpts are added only when they fit. If necessary, older recent-context messages are dropped first; the newest user message is retained or the existing clear context-limit failure is returned. Excerpts are marked as quoted context and their source event references are recorded with the reply window. Disable memory in config to detach it; this takes effect after restart.
 

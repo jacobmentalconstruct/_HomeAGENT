@@ -19,6 +19,7 @@ class ChromaStore:
         self._path = path
         self._identity = identity
         self._client_factory = client_factory
+        self._client = None
         self._collection = None
         self._ids: set[str] = set()
         self._dimensions: int | None = None
@@ -31,8 +32,8 @@ class ChromaStore:
             chromadb = importlib.import_module("chromadb")
             factory = chromadb.PersistentClient
             settings = chromadb.config.Settings(anonymized_telemetry=False)
-        client = factory(path=str(self._path), settings=settings)
-        self._collection = client.get_or_create_collection(
+        self._client = factory(path=str(self._path), settings=settings)
+        self._collection = self._client.get_or_create_collection(
             name=COLLECTION,
             metadata={"schema": SCHEMA, "embedding_identity": self._identity, "hnsw:space": "cosine"})
         self._load_metadata()
@@ -95,5 +96,23 @@ class ChromaStore:
                           "distance": float(distance)})
         return found
 
-    def close(self) -> None:
+    def fts_available(self) -> bool:
+        return False
+
+    def fts_ids(self) -> set:
+        return set()
+
+    def fts_upsert(self, ids, texts, conversation_ids, seqs, roles) -> None:
         pass
+
+    def fts_query(self, raw_query: str, n_results: int, conversation_id: str) -> list:
+        return []
+
+    def close(self) -> None:
+        self._collection = None
+        if self._client is not None:
+            try:
+                self._client._system.stop()
+            except Exception:
+                pass
+            self._client = None

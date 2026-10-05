@@ -11,14 +11,15 @@ Run it on the PC that has your GPU, then chat with it from any device on your ho
 - **A few controls on the page itself**, in the conversation list: **Free GPU memory** and **Make the selected model the default**.
 - **Private by design.** One access token, no accounts, no telemetry, no cloud calls. Conversations stay in a local SQLite file.
 - **Long conversations that keep working.** Each reply is sent the newest messages that fit the model's context. Older messages stay in the record and are marked in the page.
-- **Optional conversation recall.** Install and attach the conversation memory cartridge to retrieve relevant older turns from the conversation; see [Configuration](docs/CONFIGURATION.md).
+- **Conversation recall, on by default.** The memory cartridge retrieves relevant older turns from the active conversation. It uses a two-tier index: a Chroma vector store (preferred) and an FTS5 lexical store as a no-install fallback. Pull an Ollama embedding model to activate it; see [Configuration](docs/CONFIGURATION.md).
 - **Shared-GPU friendly.** One reply runs at a time per model, with a visible queue position. A "Free GPU" button unloads models so you can use the GPU for something else.
 - **Sturdy.** Every failure has a named reason, a reply carries on if your phone drops off, and conversations survive restarts.
 
 ## Requirements
 
-- Python 3.10 or newer (developed on 3.13). No packages to install for ordinary chat.
+- Python 3.10 or newer (developed on 3.13). No packages to install for ordinary chat or for the FTS5 lexical memory tier.
 - [Ollama](https://ollama.com) running on the same machine, with at least one chat model pulled (for example `ollama pull qwen3.5:9b`). A llama.cpp server is also supported; see [Configuration](docs/CONFIGURATION.md).
+- For the full vector memory tier: `python -m pip install -r requirements.txt` installs Chroma. Without it, memory falls back to FTS5 automatically.
 - Developed and tested on Windows 10 with an NVIDIA GPU. The server and page use only portable standard-library code. The control panel needs tkinter, which the standard Python installer for Windows includes.
 
 ## Quick start
@@ -90,7 +91,7 @@ The server uses plain HTTP with one shared token. That is reasonable on a home n
 python -B -m unittest discover -s tests
 ```
 
-The suite uses scripted fake model servers and a fake memory store, so it needs no GPU, Ollama, or Chroma. It takes a couple of minutes because it exercises real timeouts and starts the real server as a child process.
+The suite uses scripted fake model servers and a fake memory store, so it needs no GPU, Ollama, or Chroma. It runs in two modes automatically: with and without Chroma installed. It takes a couple of minutes because it exercises real timeouts and starts the real server as a child process.
 
 ## License
 

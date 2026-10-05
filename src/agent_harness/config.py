@@ -223,9 +223,13 @@ def _build(merged: dict) -> Config:
     top_k = int(_positive("memory.top_k", memory_raw.get("top_k"), whole=True))
     if top_k > 20:
         raise ConfigError("'memory.top_k' must be at most 20.")
-    if enabled and (embed_backend not in seen or not any(b.id == embed_backend and b.kind == "ollama"
-                                                        for b in backends)):
-        raise ConfigError("'memory.embedding_backend' must name a configured Ollama backend.")
+    _default_embed_backend = DEFAULTS["memory"]["embedding_backend"]
+    if enabled:
+        if embed_backend in seen and not any(
+                b.id == embed_backend and b.kind == "ollama" for b in backends):
+            raise ConfigError("'memory.embedding_backend' must name a configured Ollama backend.")
+        if embed_backend not in seen and embed_backend != _default_embed_backend:
+            raise ConfigError("'memory.embedding_backend' must name a configured Ollama backend.")
     return Config(host, port, merged["require_token"], _token(merged["token"]), backends, timeouts, num_ctx, reply,
                   _text("default_model", merged["default_model"]), _text("system_prompt", merged["system_prompt"]),
                   _text("keep_alive", merged["keep_alive"]),

@@ -21,11 +21,11 @@ Ollama chat requests set `truncate=false`, so Ollama rejects rather than silentl
 | `default_model` | `"ollama:qwen3.5:9b"` | The model new devices start on, as `backend_id:model`. You can also set it from the page. If it is not installed, the page uses the first chat model it finds. |
 | `system_prompt` | a short, honest-assistant prompt | The instruction sent ahead of every conversation. |
 | `keep_alive` | `"3m"` | How long Ollama keeps a model in GPU memory after its last reply. A shorter value, such as `"1m"`, frees the GPU sooner. |
-| `memory` | disabled | Optional local retrieval cartridge. See below. |
+| `memory` | enabled | Local retrieval cartridge; enabled by default on new installs. See below. |
 
 ## Conversation memory
 
-Memory is optional and disabled by default. To enable it, pull an Ollama embedding model (for example `ollama pull nomic-embed-text`), then set:
+Memory is enabled by default on new installs. To use vector recall, pull an Ollama embedding model (`ollama pull nomic-embed-text`); the server detects it automatically. Without it, memory falls back to the FTS5 lexical tier (SQLite full-text search, no extra packages needed). To disable memory entirely, set `"enabled": false` and restart.
 
 ```json
 "memory": {
@@ -36,16 +36,32 @@ Memory is optional and disabled by default. To enable it, pull an Ollama embeddi
 }
 ```
 
-The SQLite store requires no extra packages. Chat and recall both work with it and no extra install. The Chroma store needs `python -m pip install -r requirements.txt` (recommended); if Chroma is not installed, memory falls back to the SQLite store automatically (unless `strict` is `true`). A schema or identity mismatch is always an error and does not trigger the SQLite fallback — remove `runtime/memory/` to rebuild.
+**Tiers.** Memory uses two retrieval tiers in order of preference:
+
+1. **Vector tier** (Chroma or SQLite dot-product): semantic similarity using Ollama embeddings. Requires the embedding model to be available. Install Chroma with `python -m pip install -r requirements.txt` for best latency at scale; without it, the SQLite vector store is used instead.
+2. **Lexical tier** (FTS5 BM25): keyword matching using SQLite's built-in full-text search. No extra packages. Used per-reply as a fallback when the embedding model is unavailable, and as the primary tier when the vector store has not finished indexing. Results carry `"method": "lexical"`.
+
+A schema or identity mismatch bypasses the SQLite fallback — remove `runtime/memory/` to rebuild the index.
 
 | Memory key | Default | Meaning |
 |---|---|---|
-| `enabled` | `false` | Attach the conversation memory cartridge when `true`; restart after changing it. |
+| `enabled` | `true` | Attach the conversation memory cartridge; restart after changing it. |
 | `store` | `"chroma"` | Preferred vector store: `"chroma"` or `"sqlite"`. |
 | `strict` | `false` | When `false`, a Chroma failure falls back to the SQLite store automatically. When `true`, a Chroma failure degrades memory instead. |
 | `embedding_backend` | `"ollama"` | ID of a configured Ollama backend used to make embeddings. |
 | `embedding_model` | `"nomic-embed-text"` | Name of the Ollama embedding model to pull and use. |
 | `top_k` | `4` | Number of older matches requested per reply, from 1 to 20. |
+
+### Memory status
+
+The `/api/status` endpoint and each reply's `window.memory` field report memory state:
+
+| Field | Values | Meaning |
+|---|---|---|
+| `state` | `ready`, `degraded`, `disabled` | `ready`: at least one tier is working. `degraded`: all tiers failed. `disabled`: `enabled` is `false`. |
+| `tier` | `vector`, `lexical` | Which tier is serving retrieval results. |
+| `reason` | `""`, `embedding_model_missing`, `index_incompatible`, `transient`, `all_tiers_failed` | Machine-readable cause when not fully healthy. |
+| `fix` | human text or `""` | What to do to restore the missing tier, for example `run: ollama pull nomic-embed-text`. |
 
 **SQLite store practical scale (768-dim vectors, this machine, 2026-10-05):**
 
@@ -97,4 +113,4 @@ A llama.cpp server hosts one model, fixed when you start it, so its context size
 
 ## Where data lives
 
-`runtime/config.json` holds the settings and token. `runtime/harness.sqlite3` holds every conversation. When the conversation memory cartridge is enabled, `runtime/memory/` holds its derived Chroma index, including a plaintext copy of indexed conversation turns. Runtime data is ignored by git; back up the event log and config if you need to preserve conversations and access settings. The memory index can be rebuilt from the event log.
+`runtime/config.json` holds the settings and token. `runtime/harness.sqlite3` holds every conversation. `runtime/memory/` holds the memory cartridge's derived index (vector store and FTS5), including a plaintext copy of indexed conversation turns. Runtime data is ignored by git; back up the event log and config if you need to preserve conversations and access settings. The memory index can be rebuilt from the event log.

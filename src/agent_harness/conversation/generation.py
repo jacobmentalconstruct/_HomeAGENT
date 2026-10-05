@@ -222,6 +222,9 @@ class GenerationRunner:
             self.estimator.learn(gen.model, window.chars, window.message_count, summary.prompt_tokens)
             self.conversations.finish_turn(gen.conversation_id, gen.id, stream.text, gen.model, summary,
                                            window_record)
+            if self.memory is not None:
+                self.memory.reconcile_in_background(
+                    self.conversations.event_history(gen.conversation_id))
             gen.publish({"type": "done", "summary": {"stop_reason": summary.stop_reason,
                                                     "prompt_tokens": summary.prompt_tokens,
                                                     "reply_tokens": summary.reply_tokens}}, final=True)
