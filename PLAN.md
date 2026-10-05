@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. T2 declared, awaiting USER approval: store seam + SQLite vector fallback (see declaration below).
+3. T3 repair in progress on t3-rag-default (review of T3: not accepted); T2 reopened, approved, for one carry-over (SQLite conversation index).
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -111,7 +111,7 @@ complete. Full T3–T6 scopes, non-goals, and exit criteria are in
 - [x] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
   `sqlite` selection never imports chromadb (asserted); Chroma behavior unchanged; benchmark recorded;
   parked on `t2-store-seam`. (Accepted by USER 2026-10-05)
-- [x] **T3** Full suite green both ways; memory default-on for new configs; three-tier state machine
+- [ ] **T3** (repair in progress; not accepted) Full suite green both ways; memory default-on for new configs; three-tier state machine
   (ready/degraded/disabled); FTS5 lexical tier maintained and tested; both modes verified:
   `python -B -m unittest tests.test_memory` → 31 OK (chromadb present);
   `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest tests.test_memory` → 31 OK (absent);
@@ -158,7 +158,69 @@ The charter invariant "The local privacy boundary and optional-dependency behavi
 force unless a specific future tranche changes them" will be updated to reference the dependency
 policy above. Applied in T2.
 
-## Parked: T3 RAG Default, Graceful States, Lexical Tier
+## Current work: T3 repair (review round 1)
+
+Status: **approved by USER (2026-10-05): T3 not accepted; repair pass below. Do not start T4.**
+Branch: `t3-rag-default`. Parking commit message prefix: `T3 repair:`.
+
+Approved reopen of T2 (carry-over, item 6 only): `SqliteStore.open()` creates
+`idx_vectors_conversation` on `vectors(conversation_id)`; existing databases pick it up on reopen.
+
+Design decisions taken in this repair (all follow from the review items):
+- FTS5 is its own component, `memory/lexical_store.py`, in `runtime/memory/lexical.sqlite3`
+  (replaces the FTS table in `vectors.sqlite3` named in CLOSEOUT-SCOPE item 7; review item 4).
+  Opened and reconciled whenever memory is enabled, for every vector store.
+- Tier model: vector tier unusable (sticky fault such as index mismatch, or transient embedding
+  error) means `ready` + `tier: lexical` + reason + fix. `degraded` only when no tier works.
+  Existing T2/T3 tests that expected `degraded` for a vector-tier fault are updated accordingly.
+- Lexical result `distance` is converted to smaller-is-better (`1/(1+score)`); `score` (larger is
+  better) is also returned. Documented in API.md.
+- `build_app(with_memory=False)` by default; only `serve` passes True.
+- New reason codes beyond the T3 list: `embedding_unavailable`, `embedding_backend_missing`,
+  `vector_store_unavailable`, `lexical_unavailable`.
+
+Acceptance bullet -> named test (all in `tests/test_t3_repair.py` unless noted):
+- A1 tagged model names: `EmbeddingModelNameTests.test_has_model_treats_a_missing_tag_as_latest`,
+  `.test_tagged_model_list_does_not_report_lexical_while_vectors_serve`,
+  `.test_tier_follows_what_retrieval_actually_used`,
+  `AppMemoryStateTests.test_a_tagged_ollama_model_list_reports_the_vector_tier`,
+  `.test_a_missing_embedding_model_reports_lexical_with_the_pull_command`
+- A2 reconcile embed error never degrades: `ReconcileEmbeddingFailureTests.
+  test_embed_error_during_reconcile_keeps_memory_ready_on_both_store_kinds`,
+  `.test_embed_error_during_reconcile_with_chromadb_blocked`,
+  `.test_retrieve_uses_the_lexical_tier_after_a_reconcile_embed_error`,
+  `.test_degraded_only_when_every_tier_fails`
+- A3 both-tier failure surfaced: `BothTiersFailTests.test_a_reply_where_both_tiers_fail_is_reported_not_silent`
+- B4 lexical independent of vector store: `IndependentLexicalIndexTests.
+  test_default_chroma_configuration_serves_lexical_results_when_embeddings_fail`,
+  `.test_lexical_index_is_opened_for_every_vector_store`, `.test_lexical_index_survives_a_failed_vector_store`,
+  `LexicalStoreTests` (scoping, operators, idempotence, reopen)
+- B5 distance semantics: `LexicalStoreTests.test_lexical_distance_is_smaller_is_better_and_score_is_larger_is_better`; documented in docs/API.md
+- C6 index: `SqliteIndexTests.test_conversation_query_uses_an_index`,
+  `.test_existing_database_without_the_index_gets_it_on_reopen`
+- D7 server-owned memory: `ServerOwnsMemoryTests.test_building_the_app_for_a_non_serve_command_opens_no_store_and_starts_no_thread`,
+  `.test_building_the_app_with_memory_opens_the_stores_and_catches_up_in_the_background`,
+  `.test_only_serve_builds_the_app_with_memory`, `.test_the_smoke_command_builds_without_memory`,
+  `.test_status_command_shows_the_memory_configuration_without_opening_it`
+- E8 visibility: `VisibilityTests.test_describe_gives_info_for_fallbacks_a_warning_for_degraded_and_a_hint_for_disabled`,
+  `.test_the_page_shows_a_memory_note_for_disabled_fallback_and_degraded`,
+  `ServerOwnsMemoryTests.test_status_command_says_how_to_enable_a_disabled_memory`,
+  `AppMemoryStateTests.test_a_missing_embedding_backend_is_an_explained_lexical_state_not_a_silent_stub`
+- E9 requirements header: `VisibilityTests.test_requirements_file_says_recommended`
+- F10 live three-condition check, F12 push, F13 backlog lines: not unit-testable; evidence is the
+  commands and results recorded in the parking entry below.
+
+Progress:
+- [x] Declare T3 repair; record T2 reopen; map bullets to tests
+- [ ] Failing tests written and shown red
+- [ ] A, B, C, D, E implemented
+- [ ] Existing tests updated for the new tier semantics
+- [ ] Docs updated (README, ARCHITECTURE, CONFIGURATION, SECURITY, API, CLOSEOUT-SCOPE line 7)
+- [ ] BACKLOG lines added (item 13)
+- [ ] Live three-condition check recorded (item 10)
+- [ ] Both suite modes green; park as `T3 repair:`; push `t3-rag-default` and `RAG-SUM-GRAPH`
+
+## Superseded parking entry: T3 (first pass, not accepted)
 
 Status: **complete; awaiting USER acceptance.**
 Branch: `t3-rag-default` (off `RAG-SUM-GRAPH`).
