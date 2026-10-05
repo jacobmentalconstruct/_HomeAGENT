@@ -13,8 +13,9 @@ from pathlib import Path
 
 
 def _sanitize(raw: str) -> str | None:
-    """Quote every whitespace-separated term and OR them; user text never reaches the FTS5 parser raw."""
-    terms = [t.replace('"', "") for t in raw.split()]
+    """Quote every whitespace-separated term and OR them, dropping quotes and control characters (a NUL ends an
+    FTS5 string early); user text never reaches the FTS5 parser raw."""
+    terms = ["".join(ch for ch in t if ch != '"' and ch >= " " and ch != "\x7f") for t in raw.split()]
     terms = [t for t in terms if t]
     return " OR ".join(f'"{t}"' for t in terms) if terms else None
 

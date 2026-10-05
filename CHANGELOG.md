@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.2.1 (2026-10-05)
+
+Pre-merge fixes from the release audit. No new features.
+
+### Fixed
+
+- Sentence splitting no longer drops a closing quote or bracket after the end of a sentence (`He said "stop." Then
+  left.` kept the closing quote with no unit). Every non-whitespace character now belongs to exactly one source unit;
+  a property test checks this over 3,000 random documents. The eval fixtures' units are unchanged.
+- Keyword (FTS5) queries drop control characters. A NUL in a question used to make the query fail and mark the keyword
+  tier faulted.
+- `runtime/config.json` is written atomically on first run and when defaults are filled in (a temporary file, then a
+  swap), like the other config writes, so a failed write leaves the old file intact and no temporary file behind.
+
+### Documented
+
+- What a follow-up question sees after a fallback reply (not the document, nor anything older), and how memory treats
+  long turns.
+- The `store_reason` status field in the API and configuration docs.
+- Five audit items in `docs/BACKLOG.md`, not implemented.
+
 ## 0.2.0 (2026-10-05)
 
 Closes the context-scaling prototype described in [docs/PROJECT-CHARTER.md](docs/PROJECT-CHARTER.md).

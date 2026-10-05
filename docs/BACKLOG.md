@@ -34,3 +34,8 @@ Items promoted to a tranche are removed from this list when that tranche is decl
 - Every finished reply starts its own background reconcile thread; during a long startup catch-up they queue on the index lock. Harmless but unbounded; coalesce to one pending run.
 - A probe checks the embedder with a single throwaway text ("probe"); a model that embeds that but fails on real text is found only by the next real attempt.
 - A conversation started with Document + Question is titled with the document's first line ("Archive entry 0 records ..."); the question would make a better title.
+- Chunked indexing of long turns (today a long turn is embedded from its first part only and is retrieved only whole).
+- Reuse of derived context for follow-up questions after a fallback reply (today a follow-up sees neither the document nor the derived text).
+- A verify command or page mark for `verify_derived` (today it is a check in the code and tests only).
+- Refactor `make_server` (complexity 53) and `derive_context` (complexity 40) into smaller functions.
+- Log lines for swallowed memory exceptions (background reconcile and probe threads swallow errors; the status shows the fault, but nothing is logged).

@@ -151,16 +151,26 @@ def word_token(count: int = 5) -> str:
 _WRITE_LOCK = threading.Lock()
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """Write a private scratch file, then swap it in, so a reader never sees half a file and a failed write leaves
+    the old file as it was. The scratch file is removed if anything goes wrong."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    scratch = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        scratch.write_text(text, encoding="utf-8")
+        os.replace(scratch, path)
+    except BaseException:
+        scratch.unlink(missing_ok=True)
+        raise
+
+
 def update_file(path: Path, **values: object) -> None:
     """Change keys in the config file and keep everything else. One writer at a time; written whole to a
     private scratch file, then swapped in, so a reader never sees half a file."""
     with _WRITE_LOCK:
         stored = _read(path)
         stored.update(values)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        scratch = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-        scratch.write_text(json.dumps(stored, indent=2), encoding="utf-8")
-        os.replace(scratch, path)
+        _write_atomic(path, json.dumps(stored, indent=2))
 
 
 def load_config(path: Path) -> Config:
@@ -178,8 +188,8 @@ def load_config(path: Path) -> Config:
         merged["token"] = secrets.token_urlsafe(24)
     config = _build(merged)
     if merged != stored:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+        with _WRITE_LOCK:
+            _write_atomic(path, json.dumps(merged, indent=2))
     return config
 
 

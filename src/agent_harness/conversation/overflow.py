@@ -12,7 +12,8 @@ from .provenance import COMPOSITIONS, DEFAULT_COMPOSITION, compose
 from .window import ContextTooLarge, choose_window
 
 QUESTION = re.compile(r"(?m)^Question:\s*")
-SENTENCE = re.compile(r"(?<=[.!?])(?:[\"'”’)]*)\s+")
+# End punctuation and any closing quotes or brackets end a sentence; group 1, the whitespace after them, separates.
+SENTENCE = re.compile(r"[.!?][\"'”’)]*(\s+)")
 CHUNK_SIZE_FRACTION = 0.40
 CHUNK_OVERLAP_FRACTION = 0.12
 HEAD_TAIL_BUDGET_SHARE = 0.10
@@ -67,13 +68,13 @@ def sentences(text: str, offset: int = 0) -> list[Sentence]:
         if SENTENCE.search(raw):
             local = 0
             for match in SENTENCE.finditer(raw):
-                a, b = local, match.start()
+                a, b = local, match.start(1)
                 if raw[a:b].strip():
                     left = a + len(raw[a:b]) - len(raw[a:b].lstrip())
                     right = a + len(raw[a:b].rstrip())
                     result.append(Sentence(offset + start + left, offset + start + right,
                                            raw[left:right]))
-                local = match.end()
+                local = match.end(1)
             if raw[local:].strip():
                 left = local + len(raw[local:]) - len(raw[local:].lstrip())
                 right = len(raw.rstrip())

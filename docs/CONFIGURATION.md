@@ -99,6 +99,7 @@ The `/api/status` endpoint and each reply's `window.memory` field report memory 
 | `tier` | `vector`, `lexical`, `none` | The tier retrieval is using now. `none` only when degraded. It follows what actually served the last retrieval, not a startup guess. |
 | `reason` | `""`, `embedding_model_missing`, `embedding_unavailable`, `embedding_backend_missing`, `index_incompatible`, `vector_store_unavailable`, `lexical_unavailable`, `transient`, `all_tiers_failed` | Machine-readable cause when not fully healthy. |
 | `fix` | human text or `""` | What to do, for example `run: ollama pull nomic-embed-text`. |
+| `store`, `store_reason` | `chroma` or `sqlite`; text or `""` | The vector store in use, and why it is not the one configured, for example `chroma unavailable (ImportError); using sqlite fallback.` Empty when the configured store is in use. Not present when memory is disabled. |
 | `retry_in_seconds`, `probe_failures` | seconds, count | While the vector tier is backing off: seconds until the next probe (0 when due or healthy) and consecutive failed probes. |
 | `failed_retrievals`, `last_error` | count, text | Replies where every tier failed and nothing could be retrieved. The page and `/api/status` show these instead of silently returning nothing. |
 
