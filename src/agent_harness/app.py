@@ -41,7 +41,8 @@ def build_app(locations: Locations | None = None) -> App:
         memory = ConversationMemory(
             enabled=True, path=locations.runtime / "memory",
             identity=f"{config.memory.embedding_backend}:{config.memory.embedding_model}",
-            top_k=config.memory.top_k, embed=lambda texts: backend.embed(config.memory.embedding_model, texts))
+            top_k=config.memory.top_k, embed=lambda texts: backend.embed(config.memory.embedding_model, texts),
+            store_kind=config.memory.store, strict=config.memory.strict)
     runner = GenerationRunner(conversations, models, system_prompt=config.system_prompt,
                               num_ctx=config.num_ctx, reply_tokens=config.max_reply_tokens, memory=memory)
     return App(locations, config, events, models, conversations, runner, memory)

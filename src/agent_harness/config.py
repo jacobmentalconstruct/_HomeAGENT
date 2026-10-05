@@ -32,8 +32,8 @@ DEFAULTS = {
     "system_prompt": "You are a helpful assistant running privately on the user's home network. Be concise and honest.",
     # How long Ollama keeps a model in GPU memory after its last reply. Shorter frees the GPU sooner for other uses.
     "keep_alive": "3m",
-    "memory": {"enabled": False, "store": "chroma", "embedding_backend": "ollama",
-               "embedding_model": "nomic-embed-text", "top_k": 4},
+    "memory": {"enabled": False, "store": "chroma", "strict": False,
+               "embedding_backend": "ollama", "embedding_model": "nomic-embed-text", "top_k": 4},
 }
 
 
@@ -77,6 +77,7 @@ class Config:
 class MemoryConfig:
     enabled: bool
     store: str
+    strict: bool
     embedding_backend: str
     embedding_model: str
     top_k: int
@@ -210,8 +211,11 @@ def _build(merged: dict) -> Config:
     if not isinstance(enabled, bool):
         raise ConfigError("'memory.enabled' must be true or false.")
     store = memory_raw.get("store")
-    if store != "chroma":
-        raise ConfigError("'memory.store' must be 'chroma'.")
+    if store not in ("chroma", "sqlite"):
+        raise ConfigError("'memory.store' must be 'chroma' or 'sqlite'.")
+    strict = memory_raw.get("strict")
+    if not isinstance(strict, bool):
+        raise ConfigError("'memory.strict' must be true or false.")
     embed_backend = _text("memory.embedding_backend", memory_raw.get("embedding_backend"))
     embed_model = _text("memory.embedding_model", memory_raw.get("embedding_model"))
     if not embed_backend.strip() or not embed_model.strip():
@@ -225,4 +229,4 @@ def _build(merged: dict) -> Config:
     return Config(host, port, merged["require_token"], _token(merged["token"]), backends, timeouts, num_ctx, reply,
                   _text("default_model", merged["default_model"]), _text("system_prompt", merged["system_prompt"]),
                   _text("keep_alive", merged["keep_alive"]),
-                  MemoryConfig(enabled, store, embed_backend, embed_model, top_k))
+                  MemoryConfig(enabled, store, strict, embed_backend, embed_model, top_k))

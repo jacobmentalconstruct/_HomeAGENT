@@ -25,31 +25,43 @@ Ollama chat requests set `truncate=false`, so Ollama rejects rather than silentl
 
 ## Conversation memory
 
-Memory is optional and disabled by default. To attach the v1 cartridge, install the optional dependency with `python -m pip install -r requirements-rag.txt`, pull an Ollama embedding model (for example `ollama pull nomic-embed-text`), then set:
+Memory is optional and disabled by default. To enable it, pull an Ollama embedding model (for example `ollama pull nomic-embed-text`), then set:
 
 ```json
 "memory": {
   "enabled": true,
-  "store": "chroma",
   "embedding_backend": "ollama",
   "embedding_model": "nomic-embed-text",
   "top_k": 4
 }
 ```
 
+The SQLite store requires no extra packages. The Chroma store needs `python -m pip install -r requirements-rag.txt`; if Chroma is not installed, memory falls back to the SQLite store automatically (unless `strict` is `true`).
+
 | Memory key | Default | Meaning |
 |---|---|---|
 | `enabled` | `false` | Attach the conversation memory cartridge when `true`; restart after changing it. |
-| `store` | `"chroma"` | The only supported store is `chroma`. |
+| `store` | `"chroma"` | Preferred vector store: `"chroma"` or `"sqlite"`. |
+| `strict` | `false` | When `false`, a Chroma failure falls back to the SQLite store automatically. When `true`, a Chroma failure degrades memory instead. |
 | `embedding_backend` | `"ollama"` | ID of a configured Ollama backend used to make embeddings. |
 | `embedding_model` | `"nomic-embed-text"` | Name of the Ollama embedding model to pull and use. |
 | `top_k` | `4` | Number of older matches requested per reply, from 1 to 20. |
 
-Restart the server after changing this setting. The cartridge stores a persistent index in `runtime/memory/`; the conversation event log remains authoritative and missing entries are indexed from it before retrieval. Retrieval is limited to the active conversation. The status endpoint reports whether memory is disabled, ready, or degraded. If the embedding model changes, stop the server and remove `runtime/memory/` to rebuild vectors with a consistent model. The original conversation history remains in `runtime/harness.sqlite3`.
+**SQLite store practical scale (768-dim vectors, this machine, 2026-10-05):**
+
+| Indexed vectors | Query time |
+|---|---|
+| 1 000 | ~58 ms |
+| 5 000 | ~290 ms |
+| 20 000 | ~1 160 ms |
+
+All vectors are scanned per query (no index); time scales linearly with count and dimension. The SQLite store is suitable as a fallback tier up to a few hundred indexed turns at home-assistant scale. Prefer Chroma for large indexes or latency-sensitive use.
+
+Restart the server after changing this setting. The cartridge stores a persistent index in `runtime/memory/`; the conversation event log remains authoritative and missing entries are indexed from it before retrieval. Retrieval is limited to the active conversation. The status endpoint reports whether memory is disabled, ready, or degraded, and which store is active. If the embedding model changes, stop the server and remove `runtime/memory/` to rebuild vectors with a consistent model. The original conversation history remains in `runtime/harness.sqlite3`.
 
 If a model is re-pulled or replaced under the same name, the cartridge detects the change only when its vector dimensions differ. Rebuild `runtime/memory/` manually if the model's embeddings changed without a name or dimension change.
 
-Indexing adds local embedding work and disk use. Chroma's persistent local client is suitable for this prototype; this is not a multi-process or networked store.
+Indexing adds local embedding work and disk use. Chroma's persistent local client and the SQLite store are both suitable for single-process prototype use; neither is a multi-process or networked store.
 
 ## Backends
 

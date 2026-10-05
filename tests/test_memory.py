@@ -92,7 +92,7 @@ class MemoryTests(unittest.TestCase):
             return Client(self.collection)
 
         chroma = SimpleNamespace(config=SimpleNamespace(Settings=settings), PersistentClient=client)
-        with patch("agent_harness.memory.cartridge.importlib.import_module", return_value=chroma):
+        with patch("agent_harness.memory.chroma_store.importlib.import_module", return_value=chroma):
             memory = ConversationMemory(enabled=True, path=Path("unused"),
                                         identity="ollama:nomic-embed-text", top_k=4, embed=embed)
         self.assertEqual(memory.status()["state"], "ready")
@@ -106,7 +106,7 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(set(self.collection.rows), {"event-1", "event-2", "event-3", "event-4"})
         self.assertEqual(memory.status()["indexed"], 4)
         self.assertEqual(memory.status()["state"], "ready")
-        self.assertEqual(memory._dimensions, 2)
+        self.assertEqual(memory._store.dimensions(), 2)
         self.assertEqual(self.collection.metadata["embedding_dimensions"], 2)
         found = memory.retrieve("home", "a", self.events)
         self.assertTrue(found)
@@ -115,7 +115,7 @@ class MemoryTests(unittest.TestCase):
         self.memory().reconcile(self.events)
         reopened = self.memory()
         self.assertEqual(reopened.status()["state"], "ready")
-        self.assertEqual(reopened._dimensions, 2)
+        self.assertEqual(reopened._store.dimensions(), 2)
         reopened._embed = lambda texts: [[1.0, 2.0, 3.0] for _ in texts]
         self.assertEqual(reopened.retrieve("home", "a", self.events), [])
         self.assertEqual(reopened.status()["state"], "degraded")
@@ -126,7 +126,7 @@ class MemoryTests(unittest.TestCase):
         self.collection.modify = lambda metadata: (_ for _ in ()).throw(RuntimeError("metadata write failed"))
         memory.reconcile(self.events)
         self.assertEqual(memory.status()["state"], "ready")
-        self.assertEqual(memory._dimensions, 2)
+        self.assertEqual(memory._store.dimensions(), 2)
         self.assertTrue(memory.retrieve("home", "a", self.events))
 
     def test_retrieval_is_paraphrase_friendly_and_conversation_scoped(self):
@@ -148,7 +148,8 @@ class MemoryTests(unittest.TestCase):
 
     def test_missing_chroma_dependency_degrades_without_blocking_the_app(self):
         memory = ConversationMemory(enabled=True, path=Path("unused"), identity="ollama:model", top_k=4,
-                                    embed=embed, client_factory=lambda **kwargs: (_ for _ in ()).throw(
+                                    embed=embed, strict=True,
+                                    client_factory=lambda **kwargs: (_ for _ in ()).throw(
                                         ImportError("missing chromadb")))
         self.assertEqual(memory.status()["state"], "degraded")
         self.assertIn("requirements-rag.txt", memory.status()["error"])

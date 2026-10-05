@@ -91,9 +91,10 @@ class BackendConfigTests(unittest.TestCase):
         cfg, _ = self.load({})
         self.assertFalse(cfg.memory.enabled)
         cfg, _ = self.load({"memory": {"enabled": True, "embedding_model": "nomic-embed-text"}})
-        self.assertEqual((cfg.memory.store, cfg.memory.embedding_backend, cfg.memory.top_k),
-                         ("chroma", "ollama", 4))
-        for memory in (None, {"enabled": 1}, {"enabled": True, "store": "sqlite"},
+        self.assertEqual((cfg.memory.store, cfg.memory.strict, cfg.memory.embedding_backend,
+                          cfg.memory.top_k), ("chroma", False, "ollama", 4))
+        for memory in (None, {"enabled": 1}, {"enabled": True, "store": "vllm"},
+                       {"enabled": True, "strict": "yes"},
                        {"enabled": True, "embedding_backend": "missing"},
                        {"enabled": True, "top_k": 21}, {"enabled": True, "top_k": 1.5}):
             with self.subTest(memory=memory), self.assertRaises(ConfigError):

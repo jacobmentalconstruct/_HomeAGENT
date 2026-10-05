@@ -210,13 +210,13 @@ to cosine for L2-normalized vectors.
 
 Progress: (approved — item 0 done as planning commit)
 - [x] Apply dependency policy to PROJECT-CHARTER.md (invariant) and ARCHITECTURE.md (add Dependency policy section)
-- [ ] Write contract test suite (failing) for both stores
-- [ ] Split cartridge.py into orchestration, chroma_store.py, and sqlite_store.py
-- [ ] Implement SQLite store with meta table, little-endian blob rows, dot-product query
-- [ ] Implement store selection logic (`memory.store`, `memory.strict`) and status reporting
-- [ ] Update config.py validation for `memory.store` and `memory.strict`
-- [ ] Update CONFIGURATION.md for `memory.store` (chroma|sqlite) and `memory.strict` (bool)
-- [ ] Add contract test suite and run against both stores; benchmark and document practical limits
+- [x] Write contract test suite (failing) for both stores
+- [x] Split cartridge.py into orchestration, chroma_store.py, and sqlite_store.py
+- [x] Implement SQLite store with meta table, little-endian blob rows, dot-product query
+- [x] Implement store selection logic (`memory.store`, `memory.strict`) and status reporting
+- [x] Update config.py validation for `memory.store` and `memory.strict`
+- [x] Update CONFIGURATION.md for `memory.store` (chroma|sqlite) and `memory.strict` (bool)
+- [x] Add contract test suite and run against both stores; benchmark and document practical limits
 - [ ] Run full suite with chromadb absent and present; park with evidence
 
 ## Log
