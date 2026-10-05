@@ -64,7 +64,7 @@ class ConversationMemory:
         self._state = "degraded"
         detail = str(exc)
         if isinstance(exc, ImportError):
-            self._error = "Chroma is unavailable; install requirements-rag.txt."
+            self._error = "Chroma is unavailable; install requirements.txt."
         elif isinstance(exc, ValueError) and detail.startswith(("Memory index uses", "Embedding dimensions")):
             self._error = detail[:240]
         elif isinstance(exc, BackendError):

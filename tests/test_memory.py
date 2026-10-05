@@ -154,7 +154,7 @@ class MemoryTests(unittest.TestCase):
                                     client_factory=lambda **kwargs: (_ for _ in ()).throw(
                                         ImportError("missing chromadb")))
         self.assertEqual(memory.status()["state"], "degraded")
-        self.assertIn("requirements-rag.txt", memory.status()["error"])
+        self.assertIn("requirements.txt", memory.status()["error"])
 
     def test_embedding_identity_mismatch_is_degraded(self):
         self.memory().reconcile(self.events)

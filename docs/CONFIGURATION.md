@@ -36,7 +36,7 @@ Memory is optional and disabled by default. To enable it, pull an Ollama embeddi
 }
 ```
 
-The SQLite store requires no extra packages. The Chroma store needs `python -m pip install -r requirements-rag.txt`; if Chroma is not installed, memory falls back to the SQLite store automatically (unless `strict` is `true`). A schema or identity mismatch is always an error and does not trigger the SQLite fallback — remove `runtime/memory/` to rebuild.
+The SQLite store requires no extra packages. Chat and recall both work with it and no extra install. The Chroma store needs `python -m pip install -r requirements.txt` (recommended); if Chroma is not installed, memory falls back to the SQLite store automatically (unless `strict` is `true`). A schema or identity mismatch is always an error and does not trigger the SQLite fallback — remove `runtime/memory/` to rebuild.
 
 | Memory key | Default | Meaning |
 |---|---|---|

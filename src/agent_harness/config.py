@@ -32,7 +32,7 @@ DEFAULTS = {
     "system_prompt": "You are a helpful assistant running privately on the user's home network. Be concise and honest.",
     # How long Ollama keeps a model in GPU memory after its last reply. Shorter frees the GPU sooner for other uses.
     "keep_alive": "3m",
-    "memory": {"enabled": False, "store": "chroma", "strict": False,
+    "memory": {"enabled": True, "store": "chroma", "strict": False,
                "embedding_backend": "ollama", "embedding_model": "nomic-embed-text", "top_k": 4},
 }
 
