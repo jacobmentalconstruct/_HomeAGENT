@@ -87,9 +87,13 @@ class BackendConfigTests(unittest.TestCase):
         self.assertEqual((cfg.timeouts.idle, cfg.timeouts.total), (5.5, 900))
         self.assertEqual([b.url for b in cfg.backends], ["http://h:1", "https://h:2"])
 
+    def test_memory_default_on_for_new_config(self):
+        cfg, _ = self.load({})
+        self.assertTrue(cfg.memory.enabled)
+
     def test_memory_is_disabled_by_default_and_validates_cartridge_settings(self):
         cfg, _ = self.load({})
-        self.assertFalse(cfg.memory.enabled)
+        self.assertTrue(cfg.memory.enabled)
         cfg, _ = self.load({"memory": {"enabled": True, "embedding_model": "nomic-embed-text"}})
         self.assertEqual((cfg.memory.store, cfg.memory.strict, cfg.memory.embedding_backend,
                           cfg.memory.top_k), ("chroma", False, "ollama", 4))

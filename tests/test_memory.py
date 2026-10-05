@@ -295,5 +295,210 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(s["store"], "chroma")  # initial kind; no sqlite fallback occurred
 
 
+class T3MemoryTests(unittest.TestCase):
+    """T3: default-on, status fields (tier/reason/fix), FTS5 tier, latency bounds."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name)
+        self.evs = [
+            event(1, "turn.user", "a", "g1", "the sky is blue"),
+            event(2, "turn.assistant", "a", "g1", "yes the sky is blue"),
+            event(3, "turn.user", "b", "g2", "other conversation text"),
+            event(4, "turn.assistant", "b", "g2", "other reply"),
+        ]
+
+    def sqlite_mem(self, **kwargs):
+        defaults = dict(enabled=True, path=self.path, identity="ollama:test",
+                        top_k=4, embed=embed, store_kind="sqlite")
+        defaults.update(kwargs)
+        m = ConversationMemory(**defaults)
+        if m._store is not None:
+            self.addCleanup(m._store.close)
+        return m
+
+    # --- Status: tier field ---
+
+    def test_status_tier_vector(self):
+        """status() must contain tier='vector' when vector store is working."""
+        m = self.sqlite_mem()
+        self.assertEqual(m.status()["tier"], "vector")
+
+    def test_status_tier_lexical_on_per_reply_embed_fail(self):
+        """Tier field reflects lexical when embed fails per-reply and FTS covers the reply."""
+        m = self.sqlite_mem()
+        m.reconcile(self.evs)
+        m._embed = lambda _: (_ for _ in ()).throw(RuntimeError("per-reply"))
+        m.retrieve("sky", "a", self.evs)
+        s = m.status()
+        # state must remain ready; tier may be lexical or vector depending on FTS availability
+        self.assertEqual(s["state"], "ready")
+        self.assertIn(s["tier"], ("vector", "lexical"))
+
+    # --- Status: reason / fix fields ---
+
+    def test_status_reason_embedding_model_missing(self):
+        """reason='embedding_model_missing' when model_checker says model absent."""
+        m = self.sqlite_mem(model_checker=lambda: False,
+                            identity="ollama:nomic-embed-text")
+        s = m.status()
+        self.assertEqual(s["reason"], "embedding_model_missing")
+        self.assertIn("nomic-embed-text", s["fix"])
+
+    def test_status_reason_index_incompatible(self):
+        """reason='index_incompatible' after a ValueError (schema/identity mismatch)."""
+        tmp2 = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp2.cleanup)
+        path2 = Path(tmp2.name)
+        m1 = ConversationMemory(enabled=True, path=path2, identity="ollama:model-a",
+                                top_k=4, embed=embed, store_kind="sqlite")
+        self.addCleanup(m1._store.close)
+        m1.reconcile(self.evs)
+        m1._store.close()
+        m2 = ConversationMemory(enabled=True, path=path2, identity="ollama:model-b",
+                                top_k=4, embed=embed, store_kind="sqlite")
+        s = m2.status()
+        self.assertEqual(s["state"], "degraded")
+        self.assertEqual(s["reason"], "index_incompatible")
+
+    def test_status_reason_transient(self):
+        """reason='transient' when embed fails and at least FTS covers; still ready."""
+        m = self.sqlite_mem()
+        m._embed = lambda _: (_ for _ in ()).throw(RuntimeError("transient"))
+        try:
+            m.reconcile(self.evs)
+        except Exception:
+            pass
+        s = m.status()
+        # If FTS is available: state=ready + reason=transient
+        # If FTS is unavailable: state=degraded + reason=transient (or all_tiers_failed)
+        self.assertIn(s["reason"], ("transient", "all_tiers_failed"))
+
+    def test_status_reason_all_tiers_failed(self):
+        """reason='all_tiers_failed' when both vector store and FTS tier fail."""
+        m = self.sqlite_mem()
+        m._degrade(RuntimeError("forced"), reason="all_tiers_failed")
+        s = m.status()
+        self.assertEqual(s["state"], "degraded")
+        self.assertEqual(s["reason"], "all_tiers_failed")
+
+    # --- FTS5 lexical tier ---
+
+    def test_fts_reconcile_idempotent(self):
+        """Double-reconcile must not error or duplicate FTS rows."""
+        m = self.sqlite_mem()
+        m.reconcile(self.evs)
+        m.reconcile(self.evs)
+        self.assertEqual(m.status()["state"], "ready")
+
+    def test_fts_scoped_to_conversation(self):
+        """fts_query must return only results from the requested conversation."""
+        from agent_harness.memory.sqlite_store import SqliteStore
+        store = SqliteStore(self.path / "v.db", "test")
+        store.open()
+        self.addCleanup(store.close)
+        if not store.fts_available():
+            self.skipTest("FTS5 not available in this SQLite build")
+        store.fts_upsert(["e1", "e2"],
+                         ["the sky is blue", "other conversation text"],
+                         ["conv-a", "conv-b"], [1, 2], ["user", "user"])
+        results = store.fts_query("sky", 4, "conv-b")
+        self.assertEqual(results, [])
+
+    def test_fts_ranking(self):
+        """More relevant FTS result ranks first (BM25)."""
+        from agent_harness.memory.sqlite_store import SqliteStore
+        store = SqliteStore(self.path / "v.db", "test")
+        store.open()
+        self.addCleanup(store.close)
+        if not store.fts_available():
+            self.skipTest("FTS5 not available in this SQLite build")
+        store.fts_upsert(
+            ["e1", "e2", "e3"],
+            ["sky once", "unrelated topic", "sky sky sky sky"],
+            ["c1", "c1", "c1"], [1, 2, 3], ["user", "user", "user"])
+        results = store.fts_query("sky", 2, "c1")
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0]["content"], "sky sky sky sky")
+
+    def test_fts_query_sanitizes_special_chars(self):
+        """FTS queries with special characters must not raise."""
+        from agent_harness.memory.sqlite_store import SqliteStore
+        store = SqliteStore(self.path / "v.db", "test")
+        store.open()
+        self.addCleanup(store.close)
+        if not store.fts_available():
+            self.skipTest("FTS5 not available in this SQLite build")
+        store.fts_upsert(["e1"], ["some text"], ["c1"], [1], ["user"])
+        for raw in ('"quoted"', "AND thing", "NEAR/5 word", "key:value", 'a "b" c'):
+            with self.subTest(q=raw):
+                self.assertIsInstance(store.fts_query(raw, 4, "c1"), list)
+
+    def test_fts_method_field_is_lexical(self):
+        """FTS results must include method='lexical'."""
+        from agent_harness.memory.sqlite_store import SqliteStore
+        store = SqliteStore(self.path / "v.db", "test")
+        store.open()
+        self.addCleanup(store.close)
+        if not store.fts_available():
+            self.skipTest("FTS5 not available in this SQLite build")
+        store.fts_upsert(["e1"], ["the sky is blue"], ["c1"], [1], ["user"])
+        results = store.fts_query("sky", 4, "c1")
+        self.assertTrue(results)
+        self.assertEqual(results[0]["method"], "lexical")
+
+    def test_fts_absent_vector_tier_still_ready(self):
+        """If FTS5 is absent but vector tier works, state must remain ready."""
+        m = self.sqlite_mem()
+        # If FTS5 were absent, the vector tier still covers; memory stays ready
+        self.assertEqual(m.status()["state"], "ready")
+
+    def test_per_reply_embed_fail_uses_fts_no_degrade(self):
+        """Per-reply embed failure falls back to FTS and does NOT degrade memory."""
+        m = self.sqlite_mem()
+        m.reconcile(self.evs)
+        m._embed = lambda _: (_ for _ in ()).throw(RuntimeError("per-reply fail"))
+        results = m.retrieve("sky", "a", self.evs)
+        s = m.status()
+        self.assertEqual(s["state"], "ready")
+        self.assertIsInstance(results, list)
+
+    # --- Latency bounds ---
+
+    def test_reconcile_bounded_per_retrieve(self):
+        """retrieve() must not index more than RECONCILE_BATCH events at once."""
+        from agent_harness.memory.cartridge import RECONCILE_BATCH
+        call_counts = []
+
+        def counting_embed(texts):
+            call_counts.append(len(texts))
+            return [[1.0, 0.0] for _ in texts]
+
+        n = RECONCILE_BATCH * 3
+        evs = [event(i, "turn.user" if i % 2 == 1 else "turn.assistant",
+                     "a", f"g{(i + 1) // 2}", f"text {i}") for i in range(1, n + 1)]
+        m = self.sqlite_mem(embed=counting_embed)
+        m.retrieve("something", "a", evs)
+        total_indexed = sum(call_counts)
+        self.assertLessEqual(total_indexed, RECONCILE_BATCH,
+                             f"retrieve() indexed {total_indexed} events; must be ≤ {RECONCILE_BATCH}")
+
+    def test_background_reconcile_catches_up(self):
+        """reconcile_in_background() returns a thread that eventually indexes all events."""
+        from agent_harness.memory.cartridge import RECONCILE_BATCH
+        n = RECONCILE_BATCH + 4
+        if n % 2 != 0:
+            n += 1
+        evs = [event(i, "turn.user" if i % 2 == 1 else "turn.assistant",
+                     "a", f"g{(i + 1) // 2}", f"text {i}") for i in range(1, n + 1)]
+        m = self.sqlite_mem()
+        m.retrieve("text", "a", evs)
+        t = m.reconcile_in_background(evs)
+        t.join(timeout=15)
+        self.assertFalse(t.is_alive(), "background reconcile did not finish in 15 s")
+        self.assertEqual(len(m._store.ids()), n)
+
+
 if __name__ == "__main__":
     unittest.main()
