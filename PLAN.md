@@ -108,9 +108,9 @@ Binary pass/fail items derived from tranche exit criteria. All must be checked b
 complete. Full T3–T6 scopes, non-goals, and exit criteria are in
 [`docs/CLOSEOUT-SCOPE.md`](docs/CLOSEOUT-SCOPE.md).
 
-- [x] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
+- [ ] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
   `sqlite` selection never imports chromadb (asserted); Chroma behavior unchanged; benchmark recorded;
-  parked on `t2-store-seam`.
+  parked on `t2-store-seam`. (T2 repair: parked; awaiting USER acceptance)
 - [ ] **T3** Full suite green both ways; memory default-on for new configs; three-tier state machine
   (ready/degraded/disabled); FTS5 lexical tier maintained and tested; live check on this machine:
   Chroma importable, chromadb blocked, and embedding model unavailable; docs updated; parked on
@@ -202,7 +202,7 @@ Acceptance:
 - `memory.strict: true` degrades without fallback; tested.
 - Contract tests assert same behavior from both stores.
 - Benchmark results recorded in CONFIGURATION.
-- Chroma behavior is unchanged from T1 (existing tests still pass unmodified).
+- Chroma behavior is unchanged from T1 (existing tests adapted and pass).
 - Status reports `store` and `store_reason`.
 
 Known risks: Chroma API surface requires exact match; dot-product scoring must rank identically
@@ -221,17 +221,21 @@ Progress: (approved — item 0 done as planning commit)
 
 ## Log
 
-- 2026-10-05 T2 parked on `t2-store-seam`. Full suite 229/229 with chromadb 1.3.5 installed
-  (151 s) and 229/229 with chromadb blocked via import-finder shim (153 s). All T2 acceptance
-  criteria met: store seam split (cartridge.py + chroma_store.py + sqlite_store.py); contract
-  tests pass against both stores (fake-client Chroma + real SQLite + real Chroma when installed);
-  SQLite benchmark recorded in CONFIGURATION.md (1k→58ms, 5k→290ms, 20k→1160ms, 768-dim);
-  memory.store/memory.strict config added and validated; status reports store and store_reason;
-  fallback logic: ValueError always re-raised, ImportError/OSError fall back unless strict=true.
-  Commands used for evidence:
-    python -m pytest tests/ -q --tb=short                     (chromadb present)
-    python -m pytest tests/ -q --tb=short -p conftest_no_chroma  (chromadb absent)
-  conftest_no_chroma.py (not committed) installs a sys.meta_path blocker before any import.
+- 2026-10-05 T2 repair parked on `t2-store-seam` (see T2 repair: commit). Full suite 231/231
+  with chromadb 1.3.5 installed (152 s) and 231/231 with chromadb blocked via
+  AGENT_HARNESS_BLOCK_MODULES=chromadb (152 s). Repairs applied: SqliteStore L2-normalises
+  vectors at upsert and query (guard for zero vectors); query is locked like writes; fake Chroma
+  client in contract tests normalises and uses true cosine; non-unit-vector contract test added
+  (8th assertion, run against both stores); TestRealChromaOrdering includes a non-unit vector;
+  tests/support.py honours AGENT_HARNESS_BLOCK_MODULES env var (committed); test_memory.py was
+  adapted not unmodified (patch path, _store.dimensions(), strict=True for degradation test);
+  fallback: any non-ValueError exception falls back to sqlite unless strict=true; ValueError
+  (identity/schema mismatch) is a config error and never falls back; CONFIGURATION.md prose
+  corrected to match benchmark numbers and documents mismatch-no-fallback behaviour;
+  _projectmapper/ added to .gitignore.
+  Commands:
+    python -B -m unittest discover -s tests                                  (chromadb present)
+    AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest discover -s tests  (absent)
 
 - 2026-10-05 close-out plan declared: T2 declared and scope recorded in PLAN.md; T3–T6 full
   scopes, non-goals, and exit criteria recorded in docs/CLOSEOUT-SCOPE.md; dependency policy

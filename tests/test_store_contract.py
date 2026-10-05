@@ -1,5 +1,6 @@
 """Contract tests: the same assertions run against both vector store backends."""
 
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +14,17 @@ from agent_harness.memory.sqlite_store import SqliteStore
 # Minimal fake Chroma client (no chromadb package required)
 # ---------------------------------------------------------------------------
 
+def _normalize(v):
+    """L2-normalise v; return v unchanged for zero vectors."""
+    norm = math.sqrt(sum(x * x for x in v))
+    if norm == 0.0:
+        return list(v)
+    return [x / norm for x in v]
+
+
 class _FakeCollection:
+    """Mimics Chroma cosine-space behaviour: stores and queries L2-normalised vectors."""
+
     def __init__(self, metadata=None):
         self.metadata = metadata or {}
         self.rows = {}
@@ -28,7 +39,7 @@ class _FakeCollection:
 
     def upsert(self, ids, embeddings, documents, metadatas):
         for key, vec, doc, meta in zip(ids, embeddings, documents, metadatas):
-            self.rows[key] = {"embedding": vec, "document": doc, "metadata": meta}
+            self.rows[key] = {"embedding": _normalize(vec), "document": doc, "metadata": meta}
 
     def modify(self, metadata):
         if "hnsw:space" in metadata:
@@ -36,7 +47,7 @@ class _FakeCollection:
         self.metadata = metadata
 
     def query(self, query_embeddings, n_results, where, include):
-        q = query_embeddings[0]
+        q = _normalize(query_embeddings[0])
         rows = [(k, r) for k, r in self.rows.items()
                 if r["metadata"]["conversation_id"] == where["conversation_id"]]
         rows.sort(key=lambda p: sum(a * b for a, b in zip(q, p[1]["embedding"])), reverse=True)
@@ -44,7 +55,8 @@ class _FakeCollection:
         return {
             "documents": [[r["document"] for _, r in rows]],
             "metadatas": [[r["metadata"] for _, r in rows]],
-            "distances": [[1.0 - sum(a * b for a, b in zip(q, r["embedding"])) for _, r in rows]],
+            "distances": [[max(0.0, 1.0 - sum(a * b for a, b in zip(q, r["embedding"])))
+                           for _, r in rows]],
         }
 
 
@@ -144,6 +156,21 @@ class StoreContractMixin:
         self.assertNotIn("event-99", all_ids)
         self.assertEqual({"event-99"} - all_ids, {"event-99"})
 
+    def test_non_unit_vector_ordering(self):
+        """Ordering must be by cosine angle; magnitude must not affect rank."""
+        self.store.set_dimensions(2)
+        # After L2-normalisation: big_x→[1,0], diag→[0.707,0.707], big_y→[0,1]
+        self.store.upsert(
+            ["ev-10", "ev-11", "ev-12"],
+            [[10.0, 0.0], [5.0, 5.0], [0.0, 10.0]],
+            ["big-x", "diag", "big-y"],
+            [{"conversation_id": "conv-a", "seq": 10, "role": "user"},
+             {"conversation_id": "conv-a", "seq": 11, "role": "user"},
+             {"conversation_id": "conv-a", "seq": 12, "role": "user"}])
+        # Query with [2, 0] (non-unit along x): cosine rank = big-x, diag, big-y
+        results = self.store.query([2.0, 0.0], 3, "conv-a")
+        self.assertEqual([r["content"] for r in results], ["big-x", "diag", "big-y"])
+
 
 # ---------------------------------------------------------------------------
 # Concrete: SQLite
@@ -206,8 +233,9 @@ class TestRealChromaOrdering(unittest.TestCase):
     """SQLite and real Chroma must agree on top-k ordering for L2-normalised vectors."""
 
     def test_same_top_k_order(self):
+        # Include one non-unit vector to verify magnitude is discarded before scoring
         vecs = [[1.0, 0.0], [0.0, 1.0], [0.7071, 0.7071],
-                [0.9239, 0.3827], [0.3827, 0.9239]]
+                [0.9239, 0.3827], [0.3827, 0.9239], [50.0, 1.0]]
         identity = "ollama:test-order"
         ids = [f"event-{i}" for i in range(len(vecs))]
         docs = [f"doc-{i}" for i in range(len(vecs))]

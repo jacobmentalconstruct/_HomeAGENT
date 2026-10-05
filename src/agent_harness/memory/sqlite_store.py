@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import array
 import heapq
+import math
 import sqlite3
 import sys
 import threading
@@ -31,6 +32,14 @@ def _unpack(blob: bytes) -> list[float]:
     if not _LITTLE:
         a.byteswap()
     return a.tolist()
+
+
+def _l2norm(vec: list[float]) -> list[float]:
+    """Return the L2-normalised form of vec; return vec unchanged for zero vectors."""
+    norm = math.sqrt(sum(x * x for x in vec))
+    if norm == 0.0:
+        return vec
+    return [x / norm for x in vec]
 
 
 def _dot(a: list[float], b: list[float]) -> float:
@@ -106,7 +115,8 @@ class SqliteStore:
     def upsert(self, ids: list[str], vectors: list[list[float]],
                documents: list[str], metadatas: list[dict]) -> None:
         rows = [
-            (eid, meta["conversation_id"], int(meta["seq"]), meta["role"], doc, _pack(vec))
+            (eid, meta["conversation_id"], int(meta["seq"]), meta["role"], doc,
+             _pack(_l2norm(vec)))
             for eid, vec, doc, meta in zip(ids, vectors, documents, metadatas)
         ]
         with self._lock:
@@ -117,11 +127,13 @@ class SqliteStore:
 
     def query(self, vector: list[float], n_results: int,
               conversation_id: str) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT id, seq, role, content, vector FROM vectors WHERE conversation_id = ?",
-            (conversation_id,)).fetchall()
+        q = _l2norm(vector)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, seq, role, content, vector FROM vectors WHERE conversation_id = ?",
+                (conversation_id,)).fetchall()
         scored = [
-            (eid, seq, role, content, _dot(vector, _unpack(blob)))
+            (eid, seq, role, content, _dot(q, _unpack(blob)))
             for eid, seq, role, content, blob in rows
         ]
         top = heapq.nlargest(n_results, scored, key=lambda r: r[4])

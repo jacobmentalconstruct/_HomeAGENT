@@ -36,7 +36,7 @@ Memory is optional and disabled by default. To enable it, pull an Ollama embeddi
 }
 ```
 
-The SQLite store requires no extra packages. The Chroma store needs `python -m pip install -r requirements-rag.txt`; if Chroma is not installed, memory falls back to the SQLite store automatically (unless `strict` is `true`).
+The SQLite store requires no extra packages. The Chroma store needs `python -m pip install -r requirements-rag.txt`; if Chroma is not installed, memory falls back to the SQLite store automatically (unless `strict` is `true`). A schema or identity mismatch is always an error and does not trigger the SQLite fallback — remove `runtime/memory/` to rebuild.
 
 | Memory key | Default | Meaning |
 |---|---|---|
@@ -55,7 +55,7 @@ The SQLite store requires no extra packages. The Chroma store needs `python -m p
 | 5 000 | ~290 ms |
 | 20 000 | ~1 160 ms |
 
-All vectors are scanned per query (no index); time scales linearly with count and dimension. The SQLite store is suitable as a fallback tier up to a few hundred indexed turns at home-assistant scale. Prefer Chroma for large indexes or latency-sensitive use.
+All vectors are scanned per query (no index); time scales linearly with count and dimension. At 5 000 vectors, query time is ~290 ms per reply; beyond that, Chroma is preferable for latency-sensitive use. The SQLite store is suitable as a fallback tier at home-assistant scale (up to a few thousand indexed turns).
 
 Restart the server after changing this setting. The cartridge stores a persistent index in `runtime/memory/`; the conversation event log remains authoritative and missing entries are indexed from it before retrieval. Retrieval is limited to the active conversation. The status endpoint reports whether memory is disabled, ready, or degraded, and which store is active. If the embedding model changes, stop the server and remove `runtime/memory/` to rebuild vectors with a consistent model. The original conversation history remains in `runtime/harness.sqlite3`.
 
