@@ -171,9 +171,17 @@ T0 verification and close-out (2026-10-04):
 
 Approved: T1 reopen (USER, 2026-10-04)
 
-Status: repair implemented and verified; parked pending USER acceptance. Prior
-T1 evidence and implementation remain intact as the baseline. No merge is
+Status: review defect repaired and verified; parked pending USER acceptance.
+Prior T1 implementation and verification remain the baseline. No merge is
 authorized.
+
+Approved: T1 repair follow-up (USER, 2026-10-04)
+
+Accepted review defect: `chunks()` measured `len(item.text)`, but merged source
+spans intentionally have empty text. As a result, reduction treated all spans
+as zero-size and packed them into one chunk. The follow-up must size by source
+offsets, restore oversized merged spans to their enclosing units before packing,
+and prove both multi-chunk reduction and fail-closed non-shrinking behavior.
 
 Amended repair scope:
 
@@ -197,6 +205,9 @@ Amended repair scope:
    Ollama-only; preflight remains the primary cross-backend trigger.
 8. Add focused tests for these repairs, rerun the full suite and local smoke,
    then park the repair for USER acceptance without merging.
+9. For the accepted review follow-up, use source offset lengths for chunk sizing,
+   split oversized merged spans back to units, test multi-chunk reduction and
+   non-shrinking failure, and clarify overlap accounting and snap granularity.
 
 Expected outcome: when one oversized user message contains a document payload
 followed by an explicit `Question:` section, the harness preserves the question
@@ -224,8 +235,9 @@ Scope:
    shrinkage, total-call, shared-deadline, and depth-four bounds.
 4. Keep extraction inside the existing per-model queue ticket and within one
    generation-wide total timeout, including extraction and final answer but
-   excluding queue wait. Cap source chunks at 8; emit progress for completed
-   extraction work through the existing generation stream.
+   excluding queue wait. Cap each pass at 8 chunks; overlapping chunks count
+   individually toward that cap. Emit progress for completed work through the
+   existing generation stream.
 5. Fail with `context_exceeded` if the derived prompt still cannot fit, the
    system prompt is oversized, no relevant source span exists, or any fallback
    bound is reached. Do not loop or stream a partial first attempt as though it
@@ -260,8 +272,9 @@ Acceptance:
   Configuration documentation explains that the server no longer silently
   drops old context and that the harness owns truncation/fallback decisions.
 - Extraction runs under the existing queue ticket and completes, including the
-  final answer, within one `timeouts.total` deadline. No more than 8 source
-  chunks are processed, and the stream emits progress events as chunks finish.
+  final answer, within one `timeouts.total` deadline. No more than 8 chunks are
+  processed per pass; overlapped chunks count individually toward the cap, and
+  the stream emits progress events as chunks finish.
 - A second fixture places a required fact mid-document among distractor lines;
   question-focused extraction retains that fact. A hard-wrapped, unpunctuated
   fixture exercises span offsets. A negative fixture with no relevant source
@@ -288,6 +301,17 @@ Repair progress:
   park as `T1 repair:` without merging.
 - [ ] Await USER acceptance; do not merge unless separately authorized.
 
+T1 repair follow-up progress:
+- [x] Record the accepted review defect and amended scope.
+- [x] Size chunks by source offsets and restore oversized merged spans to
+  line/sentence units before chunking.
+- [x] Add the 1,540-character/20-span regression, multi-chunk reduce scenario,
+  and a non-shrinking fail-closed scenario.
+- [x] Document that overlap counts toward the eight-chunk per-pass cap and that
+  snapping is to line or sentence granularity; rerun full suite and local smoke.
+- [x] Park the follow-up as `T1 repair:` without merging.
+- [ ] Await USER acceptance; do not merge unless separately authorized.
+
 T1 repair verification (2026-10-04):
 
 - Replaced sentence-set matching with offset-preserving spans, size-based
@@ -312,6 +336,25 @@ T1 repair verification (2026-10-04):
 - `git diff --check` passed. No event-log schema, cache, Chroma data, or history
   changes were made. The implementation checkpoint is followed by the parking
   documentation commit recorded in the log below. No merge was performed.
+
+T1 repair review follow-up verification (2026-10-04):
+
+- Corrected chunk sizing to use source offsets (`end - start`) rather than
+  optional text. Oversized merged spans are expanded back into their enclosed
+  source units before chunking.
+- Tests prove that 20 empty-text spans totaling 1,540 characters form four
+  chunks at a 500-character limit; a separate case proves an oversized merged
+  span is restored to its line/sentence units. The full reducer fixture now
+  exercises multiple reduction chunks, and a non-shrinking pass fails closed.
+- Updated API and concept docs: snapping is at line or sentence granularity;
+  each overlapped chunk counts toward the eight-chunk per-pass cap.
+- `python -B -m unittest discover -s tests -q` passed 214 tests in 152.203s.
+- `python -B tests/ollama_overflow_smoke.py` passed with local
+  `qwen2.5:0.5b`: raw request `context_exceeded`; `prompt_eval_count=315`; the
+  actual answer included an extra distractor excerpt but also the exact fact
+  `The hidden project marker is VIOLET.`; derived depth 1 and all planted facts
+  were present in source-backed prompt spans.
+- `git diff --check` passed. No merge was performed; await USER acceptance.
 
 Known risks: the 0.5B extractor may miss or miscopy relevant sentences despite
 temperature zero; chunk boundaries and character-range mapping need to be

@@ -69,10 +69,11 @@ When T1 overflow extraction is used, `window.derived` has this shape:
 with a hard maximum of 4. `sources` includes half-open character ranges in the
 original user event; the question range comes from the parsed `Question:`
 offset. Version 2 validates whitespace-normalized exact source substrings,
-snaps matches outward to line/sentence units, and merges overlapping ranges.
-Progress uses phase `extract` for source chunks and `reduce-N` for later
-reduction levels. All model calls share a total-call cap and generation
-deadline.
+snaps matches outward to the enclosing line or sentence granularity, and merges
+overlapping ranges. The eight-chunk cap applies separately to each extraction
+or reduction pass; each overlapped chunk counts toward that cap. Progress uses
+phase `extract` for source chunks and `reduce-N` for later reduction levels. All
+model calls share a total-call cap and generation deadline.
 
 Character ranges are half-open offsets into the original event text. The source
 event remains authoritative; this field describes derived text included in the

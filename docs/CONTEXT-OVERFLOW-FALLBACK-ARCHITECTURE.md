@@ -11,11 +11,12 @@ document-like payload followed by a final explicit `Question:` section. It
 preserves the question verbatim, retains bounded beginning and ending source
 text, extracts question-relevant exact spans from the middle, and records
 provenance. Chunks are character-size bounded with about 12% overlap and prefer
-line/sentence boundaries; matching allows whitespace normalization only, then
-snaps outward to enclosing units and merges overlaps. Reduction is recursive but
-bounded by strict per-level shrinkage, a total-call cap, one shared generation
-deadline, and a depth backstop of four. No arbitrary-format parsing, general
-instruction inference, or transformation routing is claimed.
+line/sentence boundaries; the eight-chunk cap is per pass and every overlapping
+chunk counts toward it. Matching allows whitespace normalization only, then
+snaps outward at line or sentence granularity and merges overlaps. Reduction is
+recursive but bounded by strict per-level shrinkage, a total-call cap, one shared
+generation deadline, and a depth backstop of four. No arbitrary-format parsing,
+general instruction inference, or transformation routing is claimed.
 
 Preflight is the primary overflow trigger. Ollama truncation is disabled; the
 single reactive context-error retry is Ollama-only. An oversized system prompt

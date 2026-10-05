@@ -39,7 +39,7 @@ def main() -> int:
             runner = GenerationRunner(conversations, ModelRegistry([backend]),
                                       system_prompt=("Read the user's final Question: section and answer with only "
                                                      "the requested value. Do not quote or summarize the context."),
-                                      num_ctx=2048, reply_tokens=256)
+                                      num_ctx=2048, reply_tokens=256, options={"temperature": 0})
             generation = runner.send(conversation_id, text, "ol:qwen2.5:0.5b")
             if not generation.finished.wait(600):
                 print(json.dumps({"state": "timeout"}))

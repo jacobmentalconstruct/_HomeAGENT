@@ -277,7 +277,22 @@ class RunnerWindowTests(Base):
         self.assertGreaterEqual(overlap / len(parts[0]), 0.10)
         self.assertLessEqual(overlap / len(parts[0]), 0.15)
 
-    def test_recursive_reduction_is_bounded_and_shrinks(self):
+    def test_chunks_measure_empty_merged_spans_by_offsets(self):
+        spans = [overflow.Sentence(i * 77, (i + 1) * 77, "") for i in range(20)]
+        parts = overflow.chunks(spans, 500)
+        self.assertEqual(sum(span.end - span.start for span in spans), 1540)
+        self.assertEqual(len(parts), 4)
+        self.assertTrue(all(sum(span.end - span.start for span in part) <= 500 for part in parts))
+
+    def test_oversized_merged_span_is_restored_to_source_units_before_chunking(self):
+        units = [overflow.Sentence(i * 100, (i + 1) * 100, "x" * 100) for i in range(10)]
+        merged = [overflow.Sentence(0, 1000, "")]
+        parts = overflow.chunks(merged, 250, units=units)
+        self.assertGreaterEqual(len(parts), 4)
+        self.assertTrue(all(sum(unit.end - unit.start for unit in part) <= 250 for part in parts))
+        self.assertEqual({unit.start for part in parts for unit in part}, {unit.start for unit in units})
+
+    def test_recursive_reduction_splits_first_pass_selection_into_multiple_chunks(self):
         text, facts = primary_document()
         payload = text[:text.rfind("Question:")].rstrip()
         estimator = TokenEstimator()
@@ -285,9 +300,16 @@ class RunnerWindowTests(Base):
         head, tail = overflow.keep_ends(payload, MODEL, estimator, budget)
         protected = {item.start for item in head + tail}
         middle = [item for item in overflow.sentences(payload) if item.start not in protected]
-        parts = overflow.chunks(middle, int(NUM_CTX * CHUNK_SIZE_FRACTION * estimator.ratio(MODEL)))
+        max_chars = int(NUM_CTX * CHUNK_SIZE_FRACTION * estimator.ratio(MODEL))
+        parts = overflow.chunks(middle, max_chars)
+        units = overflow.sentences(payload)
+        selected = overflow.snap_and_merge([(middle[0].start, middle[-1].end)], units)
+        reduce_parts = overflow.chunks(selected, max_chars, units=units)
+        self.assertGreaterEqual(len(reduce_parts), 2)
         scripts = [ollama_reply(["\n".join(item.text for item in part)]) for part in parts]
-        scripts.extend([ollama_reply([facts[1]]), ollama_reply(["VIOLET"])])
+        scripts.extend(ollama_reply([facts[1] if any(facts[1] in item.text for item in part) else "NONE"])
+                       for part in reduce_parts)
+        scripts.append(ollama_reply(["VIOLET"]))
         fake, runner = self.overflow_runner(*scripts)
         gen = runner.send(self.conversations.create(), text, MODEL)
         self.assertEqual(outcome(*watch(gen))["type"], "done")
@@ -296,8 +318,29 @@ class RunnerWindowTests(Base):
         self.assertLessEqual(derived["depth"], overflow.MAX_DEPTH)
         extractor_calls = [request for request in fake.requests
                            if "copying tool" in request["body"]["messages"][0]["content"]]
-        self.assertEqual(len(extractor_calls), len(parts) + 1)
+        self.assertEqual(len(extractor_calls), len(parts) + len(reduce_parts))
         self.assertIn(facts[1], fake.requests[-1]["body"]["messages"][-1]["content"])
+
+    def test_non_shrinking_reduction_fails_closed(self):
+        text, _facts = primary_document()
+        payload = text[:text.rfind("Question:")].rstrip()
+        estimator = TokenEstimator()
+        budget = budget_tokens(NUM_CTX, MAX_REPLY_TOKENS)
+        head, tail = overflow.keep_ends(payload, MODEL, estimator, budget)
+        protected = {item.start for item in head + tail}
+        middle = [item for item in overflow.sentences(payload) if item.start not in protected]
+        max_chars = int(NUM_CTX * CHUNK_SIZE_FRACTION * estimator.ratio(MODEL))
+        parts = overflow.chunks(middle, max_chars)
+        units = overflow.sentences(payload)
+        selected = overflow.snap_and_merge([(middle[0].start, middle[-1].end)], units)
+        reduce_parts = overflow.chunks(selected, max_chars, units=units)
+        scripts = [ollama_reply(["\n".join(item.text for item in part)]) for part in parts]
+        scripts.extend(ollama_reply(["\n".join(item.text for item in part)]) for part in reduce_parts)
+        fake, runner = self.overflow_runner(*scripts)
+        result = outcome(*watch(runner.send(self.conversations.create(), text, MODEL)))
+        self.assertEqual((result["type"], result["error"]["reason"]), ("failed", "context_exceeded"))
+        self.assertIn("did not strictly shrink", result["error"]["message"])
+        self.assertEqual(len(fake.requests), len(parts) + len(reduce_parts))
 
     def test_total_extraction_model_call_cap_fails_closed(self):
         text, _facts = primary_document()

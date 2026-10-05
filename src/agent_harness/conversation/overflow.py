@@ -178,11 +178,50 @@ def keep_ends(payload: str, model: str, estimator, budget: int) -> tuple[list[Se
     return head, tail
 
 
+def _split_unit(item: Sentence, max_chars: int) -> list[Sentence]:
+    """Hard-split one oversized unit at whitespace where practical, preserving offsets."""
+    size = item.end - item.start
+    if size <= max_chars:
+        return [item]
+    result = []
+    cursor = 0
+    while cursor < size:
+        end = min(size, cursor + max_chars)
+        if end < size and item.text and len(item.text) == size:
+            boundary = item.text.rfind(" ", cursor + max(1, max_chars // 2), end)
+            if boundary > cursor:
+                end = boundary + 1
+        text = item.text[cursor:end] if item.text and len(item.text) == size else ""
+        result.append(Sentence(item.start + cursor, item.start + end, text))
+        cursor = end
+    return result
+
+
 def chunks(items: list[Sentence], max_chars: int,
-           overlap_fraction: float = CHUNK_OVERLAP_FRACTION) -> list[list[Sentence]]:
-    """Pack size-bounded spans and repeat ~12% at boundaries for retrieval robustness."""
+           overlap_fraction: float = CHUNK_OVERLAP_FRACTION,
+           units: list[Sentence] | None = None) -> list[list[Sentence]]:
+    """Pack by source-span size and repeat ~12% at boundaries.
+
+    `units` restores line/sentence granularity when an item is a merged range
+    with no text of its own. Overlap chunks are separate chunks for cap purposes.
+    """
     if not items or max_chars < 1:
         return []
+    normalized: list[Sentence] = []
+    seen: set[tuple[int, int]] = set()
+    for item in items:
+        size = item.end - item.start
+        if size > max_chars and units:
+            restored = [unit for unit in units if unit.start >= item.start and unit.end <= item.end]
+            if restored:
+                for unit in restored:
+                    key = (unit.start, unit.end)
+                    if key not in seen:
+                        normalized.extend(_split_unit(unit, max_chars))
+                        seen.add(key)
+                continue
+        normalized.extend(_split_unit(item, max_chars))
+    items = normalized
     overlap = max(1, int(max_chars * overlap_fraction))
     output: list[list[Sentence]] = []
     i = 0
@@ -190,15 +229,15 @@ def chunks(items: list[Sentence], max_chars: int,
         current: list[Sentence] = []
         size = 0
         j = i
-        while j < len(items) and (not current or size + len(items[j].text) <= max_chars):
-            current.append(items[j]); size += len(items[j].text); j += 1
+        while j < len(items) and (not current or size + items[j].end - items[j].start <= max_chars):
+            current.append(items[j]); size += items[j].end - items[j].start; j += 1
         output.append(current)
         if j >= len(items):
             break
         # Back up to units whose overlap approximates the requested character share.
         next_i, overlap_size = j, 0
         while next_i > i + 1:
-            candidate_size = len(items[next_i - 1].text)
+            candidate_size = items[next_i - 1].end - items[next_i - 1].start
             if overlap_size and abs(overlap_size - overlap) <= abs(overlap_size + candidate_size - overlap):
                 break
             next_i -= 1
@@ -309,7 +348,7 @@ def derive_context(original: str, history: list[tuple[int, dict]], source_event_
             before = selected_size(selected)
             # A level partitions only retained spans; overlap remains bounded and
             # mapping stays in original-event coordinates.
-            reduce_parts = chunks(selected, max_chars)
+            reduce_parts = chunks(selected, max_chars, units=units)
             if not reduce_parts or len(reduce_parts) > MAX_EXTRACTION_CHUNKS:
                 raise BackendError("context_exceeded", "The derived context exceeds the bounded reduce limit.") from exc
             reduced = extract(reduce_parts, f"reduce-{depth}")
