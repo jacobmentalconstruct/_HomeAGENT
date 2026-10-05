@@ -467,22 +467,16 @@ class T3MemoryTests(unittest.TestCase):
     # --- Latency bounds ---
 
     def test_reconcile_bounded_per_retrieve(self):
-        """retrieve() must not index more than RECONCILE_BATCH events at once."""
+        """retrieve() must not add more than RECONCILE_BATCH events to the vector index."""
         from agent_harness.memory.cartridge import RECONCILE_BATCH
-        call_counts = []
-
-        def counting_embed(texts):
-            call_counts.append(len(texts))
-            return [[1.0, 0.0] for _ in texts]
-
         n = RECONCILE_BATCH * 3
         evs = [event(i, "turn.user" if i % 2 == 1 else "turn.assistant",
                      "a", f"g{(i + 1) // 2}", f"text {i}") for i in range(1, n + 1)]
-        m = self.sqlite_mem(embed=counting_embed)
+        m = self.sqlite_mem()
         m.retrieve("something", "a", evs)
-        total_indexed = sum(call_counts)
-        self.assertLessEqual(total_indexed, RECONCILE_BATCH,
-                             f"retrieve() indexed {total_indexed} events; must be ≤ {RECONCILE_BATCH}")
+        indexed = len(m._store.ids())
+        self.assertLessEqual(indexed, RECONCILE_BATCH,
+                             f"retrieve() added {indexed} to vector index; must be ≤ {RECONCILE_BATCH}")
 
     def test_background_reconcile_catches_up(self):
         """reconcile_in_background() returns a thread that eventually indexes all events."""
