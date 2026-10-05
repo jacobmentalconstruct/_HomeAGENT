@@ -37,6 +37,15 @@ def negative_document() -> str:
     return "\n".join(distractors) + "\nQuestion: What is the missing access code?"
 
 
+def hardwrapped_document() -> tuple[str, str]:
+    """Unpunctuated, hard-wrapped source exercises line-boundary span handling."""
+    lines = [f"archive row {i:03d} contains routine unpunctuated background information"
+             for i in range(160)]
+    fact = "the hidden access code is SILVER FERN"
+    lines.insert(35, fact)
+    return "\n".join(lines) + "\nQuestion: what is the hidden access code", fact
+
+
 def script_for(text: str, replies: dict[str, str], num_ctx: int = NUM_CTX,
                max_reply_tokens: int = MAX_REPLY_TOKENS) -> list[list[tuple]]:
     """Build rule-based exact extractors for each deterministic chunk, then final answer."""

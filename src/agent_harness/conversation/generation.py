@@ -170,16 +170,24 @@ class GenerationRunner:
             turnstile.wait_turn(ticket, lambda ahead: gen.publish({"type": "position", "position": ahead}))
             deadline = time.monotonic() + backend.transport.timeouts.total
             try:
-                retrieved = (self.memory.retrieve(gen.prompt, gen.conversation_id,
+                history = self.conversations.history_indexed(gen.conversation_id)
+                system = [{"role": "system", "content": self.system_prompt}] if self.system_prompt else []
+                system_tokens = self.estimator.messages(model, system)
+                if system_tokens > self.budget:
+                    error = ContextTooLarge(system_tokens, self.budget, "system prompt")
+                    raise BackendError("context_exceeded", str(error))
+                query = gen.prompt
+                if history and self.estimator.messages(model, system + [history[-1][1]]) > self.budget:
+                    query = overflow.bounded_question(gen.prompt, max(64, int(self.budget * self.estimator.ratio(model))))
+                retrieved = (self.memory.retrieve(query, gen.conversation_id,
                                                   self.conversations.event_history(gen.conversation_id))
                              if self.memory is not None else [])
-                history = self.conversations.history_indexed(gen.conversation_id)
                 window = choose_window(history, self.system_prompt, gen.model,
                                        self.estimator, self.budget, retrieved)
                 derived = None
-            except ContextTooLarge:
-                history = self.conversations.history_indexed(gen.conversation_id)
-                derived, history = self._derive(gen, backend, model, history, retrieved, deadline)
+            except ContextTooLarge as exc:
+                derived, history = self._derive(gen, backend, model, history, retrieved, deadline,
+                                                overflow_message=str(exc))
                 window = choose_window(history, self.system_prompt, gen.model,
                                        self.estimator, self.budget, retrieved)
             window_record = window.record()
@@ -193,12 +201,13 @@ class GenerationRunner:
                 for chunk in stream:
                     gen.publish({"type": "delta", "text": chunk})
             except BackendError as exc:
-                if exc.reason != "context_exceeded" or derived is not None:
+                if exc.reason != "context_exceeded" or derived is not None or backend.config.kind != "ollama":
                     raise
                 gen.publish({"type": "reset"})
                 stream = None
                 history = self.conversations.history_indexed(gen.conversation_id)
-                derived, history = self._derive(gen, backend, model, history, retrieved, deadline)
+                derived, history = self._derive(gen, backend, model, history, retrieved, deadline,
+                                                overflow_message=exc.message)
                 window = choose_window(history, self.system_prompt, gen.model,
                                        self.estimator, self.budget, retrieved)
                 window_record = window.record()
@@ -226,7 +235,7 @@ class GenerationRunner:
                 self._fail(gen, "internal_error", "The reply ended without a result.", gen.text)
 
     def _derive(self, gen: Generation, backend, model, history: list[tuple[int, dict]],
-                retrieved: list[dict], deadline: float) -> tuple[dict, list[tuple[int, dict]]]:
+                retrieved: list[dict], deadline: float, overflow_message: str = "") -> tuple[dict, list[tuple[int, dict]]]:
         event = next((item for item in reversed(self.conversations.event_history(gen.conversation_id))
                       if item.kind == "turn.user" and item.payload.get("generation_id") == gen.id), None)
         if event is None:
@@ -235,7 +244,8 @@ class GenerationRunner:
             gen.prompt, history, event.seq, model, backend, self.estimator, self.budget,
             self.num_ctx, self.system_prompt, retrieved, self.options, deadline,
             lambda phase, completed, total: gen.publish({"type": "progress", "phase": phase,
-                                                          "completed": completed, "total": total}))
+                                                          "completed": completed, "total": total}),
+            overflow_message=overflow_message)
 
     def _fail(self, gen: Generation, reason: str, message: str, partial: str) -> None:
         self.conversations.fail_turn(gen.conversation_id, gen.id, gen.model, reason, message, partial)

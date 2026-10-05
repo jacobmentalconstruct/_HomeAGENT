@@ -37,7 +37,8 @@ def main() -> int:
             except BackendError as exc:
                 raw_overflow_reason = exc.reason
             runner = GenerationRunner(conversations, ModelRegistry([backend]),
-                                      system_prompt="Answer the user's question briefly using only the supplied context.",
+                                      system_prompt=("Read the user's final Question: section and answer with only "
+                                                     "the requested value. Do not quote or summarize the context."),
                                       num_ctx=2048, reply_tokens=256)
             generation = runner.send(conversation_id, text, "ol:qwen2.5:0.5b")
             if not generation.finished.wait(600):

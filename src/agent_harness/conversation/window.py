@@ -19,7 +19,7 @@ class ContextTooLarge(Exception):
         subject = "The system prompt alone needs" if what == "system prompt" else "This message needs"
         super().__init__(f"{subject} about {needed} tokens but at most {budget} fit in the model's context. "
                          f"Shorten it, or raise num_ctx in the config.")
-        self.needed, self.budget = needed, budget
+        self.needed, self.budget, self.what = needed, budget, what
 
 
 class TokenEstimator:

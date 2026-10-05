@@ -13,9 +13,11 @@ from .window import ContextTooLarge, choose_window
 QUESTION = re.compile(r"(?m)^Question:\s*")
 SENTENCE = re.compile(r"(?<=[.!?])(?:[\"'”’)]*)\s+")
 CHUNK_SIZE_FRACTION = 0.40
+CHUNK_OVERLAP_FRACTION = 0.12
 HEAD_TAIL_BUDGET_SHARE = 0.10
 MAX_EXTRACTION_CHUNKS = 8
-MAX_DEPTH = 2
+MAX_MODEL_CALLS = 16
+MAX_DEPTH = 4
 
 
 class UnsupportedOverflow(ValueError):
@@ -24,147 +26,271 @@ class UnsupportedOverflow(ValueError):
 
 @dataclass(frozen=True)
 class Sentence:
+    """A source unit/span with half-open offsets into the original user event."""
     start: int
     end: int
     text: str
 
 
-def parse_question(text: str) -> tuple[str, str]:
-    """Split a payload from its final explicit Question section, preserving that section verbatim."""
+def parse_question(text: str) -> tuple[str, str, tuple[int, int]]:
+    """Return payload, exact Question section, and its exact source range."""
     matches = list(QUESTION.finditer(text))
     if not matches:
         raise UnsupportedOverflow("The oversized message must end with an explicit Question: section.")
     marker = matches[-1]
+    question_range = (marker.start(), len(text))
     question = text[marker.start():]
     if not question[len("Question:"):].strip():
         raise UnsupportedOverflow("The final Question: section is empty.")
     payload = text[:marker.start()].rstrip()
     if not payload:
         raise UnsupportedOverflow("The Question: section must follow a document payload.")
-    return payload, question
+    return payload, question, question_range
 
 
 def sentences(text: str, offset: int = 0) -> list[Sentence]:
-    """Return sentence slices with offsets into the original event text."""
-    result = []
-    start = 0
-    for match in SENTENCE.finditer(text):
-        end = match.start()
-        if text[start:end].strip():
-            left = start + len(text[start:end]) - len(text[start:end].lstrip())
-            right = start + len(text[start:end].rstrip())
-            result.append(Sentence(offset + left, offset + right, text[left:right]))
-        start = match.end()
-    if text[start:].strip():
-        left = start + len(text[start:]) - len(text[start:].lstrip())
-        right = len(text.rstrip())
-        result.append(Sentence(offset + left, offset + right, text[left:right]))
-    return result
+    """Split into line/sentence units, with bounded hard splits for long unbroken lines."""
+    result: list[Sentence] = []
+    # Hard-wrapped documents use lines as units. For a single paragraph, sentences
+    # are the useful enclosing units; unpunctuated text falls back to word-safe spans.
+    line_parts = []
+    line_start = 0
+    for match in re.finditer(r"\n+", text):
+        if text[line_start:match.start()].strip():
+            line_parts.append((line_start, match.start()))
+        line_start = match.end()
+    if text[line_start:].strip():
+        line_parts.append((line_start, len(text)))
+    for start, end in line_parts:
+        raw = text[start:end]
+        if SENTENCE.search(raw):
+            local = 0
+            for match in SENTENCE.finditer(raw):
+                a, b = local, match.start()
+                if raw[a:b].strip():
+                    left = a + len(raw[a:b]) - len(raw[a:b].lstrip())
+                    right = a + len(raw[a:b].rstrip())
+                    result.append(Sentence(offset + start + left, offset + start + right,
+                                           raw[left:right]))
+                local = match.end()
+            if raw[local:].strip():
+                left = local + len(raw[local:]) - len(raw[local:].lstrip())
+                right = len(raw.rstrip())
+                result.append(Sentence(offset + start + left, offset + start + right, raw[left:right]))
+        else:
+            left = len(raw) - len(raw.lstrip())
+            right = len(raw.rstrip())
+            if left < right:
+                result.append(Sentence(offset + start + left, offset + start + right, raw[left:right]))
+    # Very long lines are cut at a nearby whitespace boundary to keep a unit usable.
+    bounded: list[Sentence] = []
+    for unit in result:
+        if len(unit.text) <= 800:
+            bounded.append(unit)
+            continue
+        cursor = 0
+        while cursor < len(unit.text):
+            end = min(len(unit.text), cursor + 800)
+            if end < len(unit.text):
+                boundary = unit.text.rfind(" ", cursor + 400, end)
+                if boundary > cursor:
+                    end = boundary
+            bounded.append(Sentence(unit.start + cursor, unit.start + end,
+                                    unit.text[cursor:end].strip()))
+            cursor = end
+    return bounded
 
 
 def normalize_sentence(text: str) -> str:
     return " ".join(text.split())
 
 
+def _normalized_offsets(text: str) -> tuple[str, list[int], list[int]]:
+    """Whitespace-collapse text while tracking source start/end for each normalized char."""
+    out: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    i = 0
+    while i < len(text):
+        if text[i].isspace():
+            j = i + 1
+            while j < len(text) and text[j].isspace():
+                j += 1
+            if out:
+                out.append(" "); starts.append(i); ends.append(j)
+            i = j
+        else:
+            out.append(text[i]); starts.append(i); ends.append(i + 1); i += 1
+    if out and out[-1] == " ":
+        out.pop(); starts.pop(); ends.pop()
+    return "".join(out), starts, ends
+
+
+def find_exact_span(source: str, candidate: str) -> tuple[int, int] | None:
+    """Find a whitespace-normalized exact substring and map it back to source offsets."""
+    haystack, starts, ends = _normalized_offsets(source)
+    needle = normalize_sentence(candidate)
+    if not needle:
+        return None
+    found = haystack.find(needle)
+    if found < 0:
+        return None
+    return starts[found], ends[found + len(needle) - 1]
+
+
+def snap_and_merge(ranges: list[tuple[int, int]], units: list[Sentence]) -> list[Sentence]:
+    snapped: list[tuple[int, int]] = []
+    for start, end in ranges:
+        overlapping = [u for u in units if u.start < end and u.end > start]
+        if overlapping:
+            snapped.append((overlapping[0].start, overlapping[-1].end))
+        else:
+            snapped.append((start, end))
+    merged: list[list[int]] = []
+    for start, end in sorted(snapped):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [Sentence(a, b, "") for a, b in merged]
+
+
 def keep_ends(payload: str, model: str, estimator, budget: int) -> tuple[list[Sentence], list[Sentence]]:
-    """Keep source sentences from each end within a 10% prompt-budget share apiece."""
-    all_sentences = sentences(payload)
+    """Keep source units from each end within a 10% prompt-budget share apiece."""
+    all_units = sentences(payload)
     allowance = max(0, int(budget * HEAD_TAIL_BUDGET_SHARE))
+
     def cost(items):
         if not items:
             return 0
         return estimator.messages(model, [{"role": "user", "content": " ".join(x.text for x in items)}])
 
     head = []
-    for item in all_sentences:
+    for item in all_units:
         if cost(head + [item]) > allowance:
             break
         head.append(item)
     tail = []
-    for item in reversed(all_sentences[len(head):]):
+    for item in reversed(all_units[len(head):]):
         if cost(tail + [item]) > allowance:
             break
         tail.insert(0, item)
     return head, tail
 
 
-def chunks(items: list[Sentence], max_chars: int) -> list[list[Sentence]]:
-    result: list[list[Sentence]] = []
-    current: list[Sentence] = []
-    count = 0
-    for item in items:
-        size = item.end - item.start
-        if current and count + size > max_chars:
-            result.append(current)
-            current, count = [], 0
-        current.append(item)
-        count += size + 1
-    if current:
-        result.append(current)
-    return result
+def chunks(items: list[Sentence], max_chars: int,
+           overlap_fraction: float = CHUNK_OVERLAP_FRACTION) -> list[list[Sentence]]:
+    """Pack size-bounded spans and repeat ~12% at boundaries for retrieval robustness."""
+    if not items or max_chars < 1:
+        return []
+    overlap = max(1, int(max_chars * overlap_fraction))
+    output: list[list[Sentence]] = []
+    i = 0
+    while i < len(items):
+        current: list[Sentence] = []
+        size = 0
+        j = i
+        while j < len(items) and (not current or size + len(items[j].text) <= max_chars):
+            current.append(items[j]); size += len(items[j].text); j += 1
+        output.append(current)
+        if j >= len(items):
+            break
+        # Back up to units whose overlap approximates the requested character share.
+        next_i, overlap_size = j, 0
+        while next_i > i + 1:
+            candidate_size = len(items[next_i - 1].text)
+            if overlap_size and abs(overlap_size - overlap) <= abs(overlap_size + candidate_size - overlap):
+                break
+            next_i -= 1
+            overlap_size += candidate_size
+        i = max(i + 1, next_i)
+    return output
+
+
+def bounded_question(text: str, max_chars: int) -> str:
+    """Return only a bounded question/query, never the oversized document payload."""
+    try:
+        _, question, _ = parse_question(text)
+    except UnsupportedOverflow:
+        question = text[-max_chars:]
+    return question[:max_chars]
 
 
 def derive_context(original: str, history: list[tuple[int, dict]], source_event_id: int, model: str,
                    backend, estimator, budget: int, num_ctx: int, system_prompt: str,
                    retrieved: list[dict], options: dict | None, deadline: float,
-                   progress) -> tuple[dict, list[tuple[int, dict]]]:
-    """Derive one bounded message. All model calls use the caller's queue and deadline."""
+                   progress, overflow_message: str = "") -> tuple[dict, list[tuple[int, dict]]]:
+    """Derive bounded source spans. Calls share the caller's ticket, deadline and total-call cap."""
     try:
-        payload, question = parse_question(original)
+        payload, question, question_range = parse_question(original)
     except UnsupportedOverflow as exc:
-        raise BackendError("context_exceeded", str(exc)) from exc
+        suffix = "Supported fallback shape: a document payload followed by a final explicit Question: section."
+        message = f"{overflow_message} {suffix}".strip() if overflow_message else f"{exc} {suffix}"
+        raise BackendError("context_exceeded", message) from exc
     head, tail = keep_ends(payload, model, estimator, budget)
-    protected = {item.start for item in head + tail}
-    middle = [item for item in sentences(payload) if item.start not in protected]
+    protected = [(x.start, x.end) for x in head + tail]
+    middle = [u for u in sentences(payload) if not any(u.start >= a and u.end <= b for a, b in protected)]
     max_chars = max(1, int(num_ctx * CHUNK_SIZE_FRACTION * estimator.ratio(model)))
-    if any(item.end - item.start > max_chars for item in middle):
-        raise BackendError("context_exceeded", "A source sentence is too large for the bounded extraction chunk.")
     source_chunks = chunks(middle, max_chars)
     if not source_chunks or len(source_chunks) > MAX_EXTRACTION_CHUNKS:
         raise BackendError("context_exceeded", "The document exceeds the extraction chunk limit.")
-    source_sentences = {normalize_sentence(item.text): item for item in middle}
+    units = sentences(payload)
     source_hash = hashlib.sha256(original.encode("utf-8")).hexdigest()
+    calls = 0
 
-    def extract(items: list[Sentence], phase: str, completed: int, total: int) -> list[Sentence]:
-        if time.monotonic() >= deadline:
-            raise BackendError("deadline", "The generation-wide model deadline expired.")
-        content = question + "\n\nSource chunk:\n" + "\n".join(item.text for item in items)
-        messages = [
-            {"role": "system", "content": "You are a copying tool. Your only allowed output is exact complete "
-             "sentence(s) already present in SOURCE. Never answer in your own words, change labels, or invent text. "
-             "If the question asks for a value, copy the whole source sentence containing that value. "
-             "If no source sentence directly matches the question, output exactly NONE."},
-            {"role": "user", "content": "Question and source:\n" + content +
-             "\n\nCopy the exact matching source sentence(s) only. No labels, bullets, or explanation."},
-        ]
-        call_options = dict(options or {})
-        call_options["temperature"] = 0
-        stream = backend.chat(model, messages, call_options, deadline=deadline)
-        try:
-            for _part in stream:
-                pass
-        except BackendError as exc:
-            # Extractor text is internal and must never be shown as a partial user-facing answer.
-            raise BackendError(exc.reason, exc.message, status=exc.status, detail=exc.detail) from exc
-        candidates = [normalize_sentence(line.strip()) for line in stream.text.splitlines()
-                      if line.strip() and line.strip().upper() != "NONE"]
-        found = [source_sentences[candidate] for candidate in candidates if candidate in source_sentences]
-        progress(phase, completed, total)
-        return found
+    def extract(parts: list[list[Sentence]], phase: str) -> list[Sentence]:
+        nonlocal calls
+        found_ranges: list[tuple[int, int]] = []
+        for index, part in enumerate(parts, 1):
+            if time.monotonic() >= deadline:
+                raise BackendError("deadline", "The generation-wide model deadline expired.")
+            calls += 1
+            if calls > MAX_MODEL_CALLS:
+                raise BackendError("context_exceeded", "The bounded extraction model-call limit was reached.")
+            source = "\n".join(payload[u.start:u.end] for u in part)
+            messages = [
+                {"role": "system", "content": "You are a copying tool. Output only exact source text directly relevant to the question. Never paraphrase, answer in your own words, change labels, or invent text. If no source text directly matches, output exactly NONE."},
+                {"role": "user", "content": question + "\n\nSource:\n" + source + "\n\nCopy exact matching source span(s) only; no labels or explanation."},
+            ]
+            call_options = dict(options or {}); call_options["temperature"] = 0
+            stream = backend.chat(model, messages, call_options, deadline=deadline)
+            try:
+                for _part in stream:
+                    pass
+            except BackendError as exc:
+                raise BackendError(exc.reason, exc.message, status=exc.status, detail=exc.detail) from exc
+            # Support either one contiguous excerpt or one exact excerpt per output line.
+            candidates = [line.strip() for line in stream.text.splitlines()
+                          if line.strip() and line.strip().upper() != "NONE"]
+            for candidate in candidates:
+                local = find_exact_span(source, candidate)
+                if local is None:
+                    continue
+                # Map through the newline-separated source units in this chunk.
+                cursor = 0
+                for unit_index, unit in enumerate(part):
+                    unit_text = payload[unit.start:unit.end]
+                    a, b = cursor, cursor + len(unit_text)
+                    if local[0] < b and local[1] > a:
+                        found_ranges.append((unit.start + max(0, local[0] - a),
+                                             unit.start + min(len(unit_text), local[1] - a)))
+                    cursor = b + (1 if unit_index < len(part) - 1 else 0)
+            progress(phase, index, len(parts))
+        return snap_and_merge(found_ranges, units)
 
-    selected: list[Sentence] = []
-    for index, part in enumerate(source_chunks, 1):
-        selected.extend(extract(part, "extract", index, len(source_chunks)))
-    selected = sorted({item.start: item for item in selected}.values(), key=lambda item: item.start)
+    def selected_size(items: list[Sentence]) -> int:
+        return sum(x.end - x.start for x in items)
+
+    selected = extract(source_chunks, "extract")
     if not selected:
-        raise BackendError("context_exceeded", "No source sentence matched the question; nothing was transformed.")
+        raise BackendError("context_exceeded", "No source span matched the question; nothing was transformed.")
 
     def render(items: list[Sentence]) -> str:
         segments = []
         if head:
             segments.append(payload[:head[-1].end])
         segments.append("[Derived middle: extractive, source-linked context]")
-        segments.extend(item.text for item in items)
+        segments.extend(payload[x.start:x.end] for x in items)
         if tail:
             segments.append(payload[tail[0].start:])
         segments.append(question)
@@ -173,21 +299,26 @@ def derive_context(original: str, history: list[tuple[int, dict]], source_event_
     changed_history = list(history)
     changed_history[-1] = (history[-1][0], {"role": "user", "content": render(selected)})
     depth = 1
-    try:
-        choose_window(changed_history, system_prompt, model, estimator, budget, retrieved)
-    except ContextTooLarge as exc:
-        if MAX_DEPTH < 2:
-            raise BackendError("context_exceeded", "The derived prompt still exceeds the model context.") from exc
-        depth = 2
-        selected = sorted({item.start: item for item in extract(selected, "combine", 1, 1)}.values(),
-                          key=lambda item: item.start)
-        if not selected:
-            raise BackendError("context_exceeded", "Combining extracted sentences produced no valid source text.")
-        changed_history[-1] = (history[-1][0], {"role": "user", "content": render(selected)})
+    while True:
         try:
             choose_window(changed_history, system_prompt, model, estimator, budget, retrieved)
-        except ContextTooLarge as second:
-            raise BackendError("context_exceeded", "The derived prompt still exceeds the model context.") from second
+            break
+        except ContextTooLarge as exc:
+            if depth >= MAX_DEPTH:
+                raise BackendError("context_exceeded", "The derived prompt still exceeds the model context.") from exc
+            before = selected_size(selected)
+            # A level partitions only retained spans; overlap remains bounded and
+            # mapping stays in original-event coordinates.
+            reduce_parts = chunks(selected, max_chars)
+            if not reduce_parts or len(reduce_parts) > MAX_EXTRACTION_CHUNKS:
+                raise BackendError("context_exceeded", "The derived context exceeds the bounded reduce limit.") from exc
+            reduced = extract(reduce_parts, f"reduce-{depth}")
+            after = selected_size(reduced)
+            if not reduced or after >= before:
+                raise BackendError("context_exceeded", "The reduce pass did not strictly shrink source text.") from exc
+            selected = reduced
+            depth += 1
+            changed_history[-1] = (history[-1][0], {"role": "user", "content": render(selected)})
 
     ranges = []
     if head:
@@ -195,8 +326,9 @@ def derive_context(original: str, history: list[tuple[int, dict]], source_event_
     ranges.extend([[item.start, item.end] for item in selected])
     if tail:
         ranges.append([tail[0].start, len(payload)])
-    ranges.append([original.rfind("Question:"), len(original)])
-    sources = [{"event_id": source_event_id, "char_range": span, "source_sha256": source_hash} for span in ranges]
-    derived = {"method": "extractive_map_reduce", "version": 1, "depth": depth,
+    ranges.append([question_range[0], question_range[1]])
+    sources = [{"event_id": source_event_id, "char_range": span, "source_sha256": source_hash}
+               for span in ranges]
+    derived = {"method": "extractive_map_reduce", "version": 2, "depth": depth,
                "text": changed_history[-1][1]["content"], "sources": sources}
     return derived, changed_history
