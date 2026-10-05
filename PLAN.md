@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. T3 accepted (USER, 2026-10-05). T4 Harden parked on t4-harden, awaiting USER acceptance; T5 not started.
+3. T4 accepted (USER, 2026-10-05). T5 Measure and Compose declared on t5-measure; T6 not started.
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -116,7 +116,7 @@ complete. Full T3–T6 scopes, non-goals, and exit criteria are in
   `python -B -m unittest tests.test_memory` → 31 OK (chromadb present);
   `AGENT_HARNESS_BLOCK_MODULES=chromadb python -B -m unittest tests.test_memory` → 31 OK (absent);
   full suite after repair: 281 tests, 2 skipped, 0 failures in both modes (see T3 repair evidence); live three-condition check recorded; docs updated; parked on `t3-rag-default`.
-- [x] **T4** (parked; awaiting USER acceptance) Full suite green; `verify_derived` pure function tested; overflow config switch tested;
+- [x] **T4** (accepted by USER 2026-10-05) Full suite green; `verify_derived` pure function tested; overflow config switch tested;
   page shows derived block (textContent only); memory bounded re-probe tested; dependency table in
   ARCHITECTURE; parked on `t4-harden`.
 - [ ] **T5** Eight eval fixtures run against five models; results in `docs/`; prompt-composition
@@ -158,9 +158,94 @@ The charter invariant "The local privacy boundary and optional-dependency behavi
 force unless a specific future tranche changes them" will be updated to reference the dependency
 policy above. Applied in T2.
 
-## Current work: T4 Harden (no new features)
+## Current work: T5 Measure and Compose
 
-Status: **parked as `T4:`; awaiting USER acceptance. T5 not started.**
+Status: **declared by USER instruction (2026-10-05); in progress. Do not start T6.**
+Branch: `t5-measure` (off the T4 head `b6d0a94`). Scope source: `docs/CLOSEOUT-SCOPE.md` T5 items 1-4.
+Note: `origin/RAG-SUM-GRAPH` was still at the T2 head `71ebc12`; local `RAG-SUM-GRAPH` was fast-forwarded to
+`t4-harden` (not pushed) so T5 branches off T4.
+
+USER-approved amendment (2026-10-05), recorded: in the T5 fixture list, the "duplicated sentence" fixture is
+replaced by **"document containing earlier `Question:` lines"**. CLOSEOUT-SCOPE item 1 is edited to match.
+
+Non-goals: relevance-cutoff or query-composition changes unless the T5 numbers show them hurting, hybrid
+ranking, cross-conversation retrieval, any backend parsing change, any new variant beyond three.
+
+Exit thresholds (fixed before the first run, copied as written from CLOSEOUT-SCOPE):
+- The answer sentence is in the derived text in 100% of fixtures for models >= 1.5B and >= 7/8 for 0.5B.
+- Final-answer correctness >= 80% for models >= 4B (report, do not gate, for smaller).
+- The absent-fact fixture fails visibly every time.
+- Timings reported, not gated.
+If a threshold is missed after the allowed variants, record it as a known limitation and stop. The tranche ends
+either way.
+
+Interpretation fixed before the first run (recorded so the numbers cannot move it):
+- Models: `qwen2.5:0.5b`, `qwen2.5:1.5b`, `qwen3.5:2b`, `qwen3.5:4b`, `qwen3.5:9b`. "Models >= 1.5B" is 1.5b, 2b,
+  4b and 9b; "models >= 4B" is 4b and 9b; "0.5B" is qwen2.5:0.5b.
+- Denominator is all 8 fixtures. The absent-fact fixture has no answer sentence, so for the extraction check it
+  counts as a pass when the reply fails visibly (nothing was wrongly extracted) and as a miss otherwise.
+- "Answer sentence in the derived text" means every fixture fact string is found in the derived text after
+  collapsing whitespace runs. "Correct" means the final answer contains every expected key, case-insensitively;
+  for the absent-fact fixture, correct means it failed visibly (`context_exceeded`) and produced no answer.
+- Correctness >= 80% of 8 means at least 7 of 8 (6.4 rounds up).
+- "Fails visibly" means the reply state is `failed` with reason `context_exceeded` and no final answer.
+- One run per cell at temperature 0 (Ollama is near-deterministic at 0, not guaranteed); `num_ctx` 2048, reply
+  limit 256, the same system prompt as `tests/ollama_overflow_smoke.py`. Each cell uses a fresh runner and event
+  store in a temporary directory, so token-estimator learning never carries over.
+
+Composition variants (at most three, no others): `baseline` (head/tail share 10% of the prompt budget; order head,
+derived block, tail, question); `small_ends` (share 5%; same order); `block_by_question` (share 10%; order head,
+tail, derived block, question). Selected through `derive_context(..., composition=...)` and
+`GenerationRunner(overflow_composition=...)`; not a config key.
+Winner rule (fixed now; applied by `choose_winner`): over all 5 models x 8 fixtures per variant, pick the variant
+with (1) the most exit-threshold checks met (four checks: extraction >= 1.5B, extraction 0.5B, correctness
+>= 4B, absent fact), then (2) the most correct final answers, then (3) the most extraction passes, then (4) the
+fewest total model calls, then (5) `baseline`. The winner becomes `DEFAULT_COMPOSITION`.
+Additive record change needed to keep `verify_derived` valid for every variant: the derived record gains
+`composition` and each source gains `role` (head, middle, tail, question). Records without them still verify as
+`baseline`.
+
+Acceptance bullet -> named test or recorded artifact (tests in `tests/test_t5_measure.py`):
+- 1 fixture set (8, amended list): `EvalFixtureTests.test_there_are_eight_fixtures_with_the_declared_kinds`,
+  `.test_the_duplicated_sentence_fixture_is_replaced_by_earlier_question_lines`,
+  `.test_every_fixture_overflows_the_budget_and_ends_with_its_question`,
+  `.test_every_answer_sentence_is_in_its_document_and_the_absent_fixture_has_none`,
+  `.test_the_earlier_question_lines_fixture_parses_to_the_final_question`,
+  `.test_the_boundary_fixture_puts_its_fact_first_after_the_protected_head`,
+  `.test_the_long_question_fixture_has_a_long_question`, `.test_every_fixture_fits_the_extraction_chunk_cap`
+- 2 runner records extraction, answer, correctness, calls, time; five models; results under `docs/`:
+  `EvalRunnerTests.test_the_declared_models_and_variants`, `.test_a_cell_records_extraction_answer_correctness_calls_and_time`,
+  `.test_an_absent_fact_cell_records_a_visible_failure`, `.test_results_are_saved_after_each_cell_and_resumed`,
+  `.test_the_report_lists_every_cell_and_the_thresholds`; recorded artifacts `docs/eval-results.json` and
+  `docs/EVAL-RESULTS.md`; `RecordedArtifactTests.test_the_results_cover_every_model_variant_and_fixture`
+- 3 at most three variants, winner by the numbers: `CompositionTests.test_there_are_exactly_three_named_compositions`,
+  `.test_baseline_output_is_unchanged`, `.test_small_ends_keeps_less_of_the_head_and_tail`,
+  `.test_block_by_question_puts_the_derived_block_just_before_the_question`,
+  `.test_every_composition_verifies_with_verify_derived`, `EvalRunnerTests.test_the_winner_rule_follows_the_declared_order`,
+  `CompositionTests.test_the_default_composition_is_the_recorded_winner`
+- 4 page Document + Question fields, composed in the browser, no backend parsing change:
+  `DocumentQuestionPageTests.test_compose_joins_document_and_question_in_the_backend_shape`,
+  `.test_the_composed_message_parses_with_the_backend_parser`, `.test_an_over_limit_message_is_refused_in_the_browser`,
+  `.test_the_page_has_document_and_question_fields_and_uses_textcontent`, `.test_parse_question_is_unchanged`
+- Exit thresholds: `ThresholdTests.test_extraction_threshold_by_model_size`,
+  `.test_correctness_threshold_gates_only_models_4b_and_up`, `.test_absent_fact_must_fail_visibly_every_time`,
+  `.test_timings_are_reported_not_gated`, `RecordedArtifactTests.test_threshold_constants_are_the_declared_ones`;
+  the outcome per threshold (met, or a named limitation) is the recorded artifact `docs/EVAL-RESULTS.md` and
+  the parking entry.
+
+Progress:
+- [x] Declare T5; record the amendment, thresholds, interpretation and winner rule before any run
+- [ ] Failing tests written and shown red
+- [ ] Composition variants and `verify_derived` roles
+- [ ] Fixtures, runner, threshold and winner functions
+- [ ] Page Document + Question UI
+- [ ] Live eval run (5 models x 3 variants x 8 fixtures) and results in `docs/`
+- [ ] Winner set as default; thresholds met or named limitations recorded
+- [ ] Both suite modes green; park as `T5:`; push `t5-measure`
+
+## Parked: T4 Harden (no new features)
+
+Status: **accepted by USER (2026-10-05).**
 Branch: `t4-harden` (off the T3 head `a9aeb65`). Scope source: `docs/CLOSEOUT-SCOPE.md` T4 items 1-9, plus
 one small USER-added item (10).
 Note: `origin/RAG-SUM-GRAPH` was still at the T2 head `71ebc12` when T4 began; local `RAG-SUM-GRAPH` was

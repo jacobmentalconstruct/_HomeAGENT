@@ -107,7 +107,8 @@ exists on the page.
 
 Scope:
 1. `tests/eval` fixture set (~8): middle fact, wrapped text, unpunctuated text, absent fact,
-   two facts, fact near head/tail boundary, duplicated sentence, long question.
+   two facts, fact near head/tail boundary, document containing earlier `Question:` lines
+   (USER-approved replacement for "duplicated sentence", 2026-10-05), long question.
 2. Eval runner: for each model and fixture record extraction result (was the answer sentence
    in the derived text?), the final answer, correctness, model calls, wall time. Models:
    `qwen2.5:0.5b`, `1.5b`, `qwen3.5:2b`, `4b`, `9b`. Write results to a file under `docs/`.
