@@ -108,9 +108,9 @@ Binary pass/fail items derived from tranche exit criteria. All must be checked b
 complete. Full T3–T6 scopes, non-goals, and exit criteria are in
 [`docs/CLOSEOUT-SCOPE.md`](docs/CLOSEOUT-SCOPE.md).
 
-- [ ] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
+- [x] **T2** Full suite green with chromadb absent AND present; contract tests cover both stores;
   `sqlite` selection never imports chromadb (asserted); Chroma behavior unchanged; benchmark recorded;
-  parked on `t2-store-seam`. (T2 repair: parked; awaiting USER acceptance)
+  parked on `t2-store-seam`. (Accepted by USER 2026-10-05)
 - [ ] **T3** Full suite green both ways; memory default-on for new configs; three-tier state machine
   (ready/degraded/disabled); FTS5 lexical tier maintained and tested; live check on this machine:
   Chroma importable, chromadb blocked, and embedding model unavailable; docs updated; parked on
@@ -157,9 +157,62 @@ The charter invariant "The local privacy boundary and optional-dependency behavi
 force unless a specific future tranche changes them" will be updated to reference the dependency
 policy above. Applied in T2.
 
-## Current work: T2 Store Seam + SQLite Fallback
+## Current work: T3 RAG Default, Graceful States, Lexical Tier
 
-Status: **approved by USER (2026-10-05); item 3 amended with USER approval (2026-10-05).**
+Status: **approved by USER (2026-10-05).**
+Branch: `t3-rag-default` (off `RAG-SUM-GRAPH`).
+
+Expected outcome: conversation memory is on by default for new configs; three-tier state machine
+with machine-readable reasons; FTS5 lexical tier always maintained; full suite passes with chromadb
+absent and present; live check under three conditions.
+
+Scope:
+1. New configs: `memory.enabled true`.
+2. States `ready`/`degraded`/`disabled` with machine-readable reasons and human fix text.
+3. Detect missing embedding model from backend model list; report pull command.
+4. `enabled=false` → no memory store opened at all.
+5. Rename `requirements-rag.txt` → `requirements.txt`; update all references.
+6. Latency: index finished turns at reply completion; background startup catch-up; bounded batches
+   per retrieval; tests prove no unbounded first-reply stall.
+7. FTS5 lexical tier (REQUIRED): FTS5 table in `vectors.sqlite3`; scoped, ranked, sanitized;
+   `method: "lexical"`; per-reply fallback when embed fails; FTS5-absent simulation tested.
+8. Tests: both modes; tests not needing memory disable it explicitly; no static third-party imports.
+9. Docs: README, ARCHITECTURE, CONFIGURATION, SECURITY, API, charter invariant.
+
+Acceptance → named test (every bullet maps to at least one test):
+- New config `enabled=True`: `test_memory_default_on_for_new_config`
+- Reason `embedding_model_missing` + fix text: `test_status_reason_embedding_model_missing`
+- Reason `index_incompatible`: `test_status_reason_index_incompatible`
+- Reason `transient`: `test_status_reason_transient`
+- Reason `all_tiers_failed`: `test_status_reason_all_tiers_failed`
+- `tier` field in status: `test_status_tier_vector` / `test_status_tier_lexical`
+- FTS idempotent reconcile: `test_fts_reconcile_idempotent`
+- FTS conversation scoping: `test_fts_scoped_to_conversation`
+- FTS ranking: `test_fts_ranking`
+- FTS query sanitization: `test_fts_query_sanitizes_special_chars`
+- FTS method field: `test_fts_method_field_is_lexical`
+- FTS absent simulation: `test_fts_absent_degrades_only_when_no_vector_tier`
+- Per-reply embed fail → FTS (no degrade): `test_per_reply_embed_fail_uses_fts_no_degrade`
+- Bounded reconcile (no stall): `test_reconcile_bounded_per_retrieve`
+- Post-reply background reconcile: `test_background_reconcile_after_reply`
+- `enabled=false` → no store opened: already in `test_disabled_memory_does_no_index_work`
+
+Progress:
+- [ ] Tick T2 DoD; fast-forward RAG-SUM-GRAPH; create branch; declare T3 in PLAN.md
+- [ ] Write all failing tests (guardrail: new behavior needs failing test first)
+- [ ] Scope 1: default-on (`DEFAULTS["memory"]["enabled"] = True`)
+- [ ] Scope 5: rename requirements-rag.txt → requirements.txt
+- [ ] Scope 2+3: machine-readable reasons, fix text, model_checker, tier field in status
+- [ ] Scope 7: FTS5 table in SqliteStore; reconcile and query; sanitize; method field
+- [ ] Scope 6: bounded reconcile per retrieve; post-reply background thread in generation.py
+- [ ] Scope 4: assert `enabled=false` opens nothing (extend existing disabled test)
+- [ ] Scope 8: run both modes; verify no static imports break
+- [ ] Scope 9: docs (README, ARCHITECTURE, CONFIGURATION, SECURITY, API, charter)
+- [ ] Park T3 with evidence
+
+## Parked: T2 Store Seam + SQLite Fallback
+
+Status: **accepted by USER (2026-10-05).**
 Branch: `t2-store-seam` (off `RAG-SUM-GRAPH`).
 
 Expected outcome: `memory/cartridge.py` is split into orchestration, Chroma store, and SQLite
