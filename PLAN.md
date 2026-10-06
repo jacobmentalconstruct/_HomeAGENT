@@ -3,15 +3,15 @@
 ## State in 10 lines
 
 ```text
-1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
+1. Direction: context-scaling prototype complete (v0.2.0, then v0.2.1); product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. v0.2.1 tagged (T7 audit fixes, on top of v0.2.0). Next, by the USER: epoch tags and the join onto main (docs/HISTORY.md).
+3. v0.2.1 (T7 audit fixes) is on main via a join commit (b362368); epoch tags mark earlier history (docs/HISTORY.md).
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
-6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
+6. Branches: main is the only branch; each new tranche branches off main and merges back after USER acceptance.
 7. docs/BACKLOG.md is the deferred and out-of-scope parking lot.
-8. T3–T6 declared and provisionally scoped; each becomes active only after USER approval.
-9. main remains unchanged; not touched until the USER merges at T6.
+8. T0–T7 are parked and accepted; new work needs a declared tranche and USER approval first.
+9. GitHub holds main and tags v0.2.0, v0.2.1, epoch-1-harness-0.1.0, epoch-2-rag-v1.0; RAG-SUM-GRAPH is deleted.
 10. Never record an unrun check as passed; report exact commands and results at every park.
 ```
 
