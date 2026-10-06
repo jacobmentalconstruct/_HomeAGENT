@@ -5,7 +5,7 @@
 ```text
 1. Direction: close-out to v0.2.0; T2–T6 declared; product purpose: docs/PROJECT-CHARTER.md.
 2. T1 accepted: bounded overflow extraction on RAG-SUM-GRAPH; 214 tests pass; charter stop conditions met.
-3. v0.2.0 tagged (T6). T7 audit fixes approved (USER, 2026-10-05) and in progress on t7-audit-fixes.
+3. v0.2.1 tagged (T7 audit fixes, on top of v0.2.0). Next, by the USER: epoch tags and the join onto main (docs/HISTORY.md).
 4. Dependency policy approved: dynamic imports; stdlib backup; actionable status; absent+present tests.
 5. Retrieval tiers: Chroma → SQLite vectors → FTS5 keyword; all "ready" unless every tier fails.
 6. Branches: each tranche off RAG-SUM-GRAPH; fast-forward after acceptance; USER merges to main at T6.
@@ -158,9 +158,11 @@ The charter invariant "The local privacy boundary and optional-dependency behavi
 force unless a specific future tranche changes them" will be updated to reference the dependency
 policy above. Applied in T2.
 
-## Current work: T7 Pre-merge audit fixes
+## Parked: T7 Pre-merge audit fixes
 
-Status: **approved by USER as declared (2026-10-05), with three refinements; in progress.**
+Status: **parked as `T7:` and tagged `v0.2.1`; verified independently by the USER (371 tests, both modes, fuzz and
+battery clean). Stopped. The epoch tags and the join onto `main` are the USER's.**
+Approved as declared (2026-10-05), with three refinements.
 USER-approved addition (2026-10-05): create `docs/HISTORY.md` (three epochs, E-numbering), link it from the README,
 and test that every tag it names is listed (`HistoryDocTests` in `tests/test_t7_audit_fixes.py`). The epoch tags and
 the join onto `main` happen after `v0.2.1` is pushed, on the USER's go. Correction to the draft: `dfcc9f1` is not an
@@ -216,10 +218,36 @@ Acceptance bullet -> named test or artifact (tests in `tests/test_t7_audit_fixes
 Progress:
 - [x] Declare T7; map every bullet
 - [x] USER approval (with the three refinements above)
-- [ ] Failing tests written and shown red
-- [ ] Items 1-5
-- [ ] Version, CHANGELOG, both suite modes, fresh clone
-- [ ] Park as `T7:`; fast-forward and push `RAG-SUM-GRAPH`; tag and push `v0.2.1`; stop
+- [x] Failing tests written and shown red (commit `675e037`: 17 problems in 12 tests; the follow-up window test and the
+  clean-write test passed at once because they describe existing behavior)
+- [x] Items 1-5 (commit `c90dfe7`), plus the approved `docs/HISTORY.md` addition (commit `48e127b`)
+- [x] Version, CHANGELOG, both suite modes, fresh clone
+- [x] Park as `T7:`; push `t7-audit-fixes`; fast-forward and push `RAG-SUM-GRAPH`; tag and push `v0.2.1`; stop
+
+Evidence (2026-10-05):
+- Repro before the fix: `He said "stop." Then left.` gave units `He said "stop.` (0-14) and `Then left.` (16-26); the
+  `"` at 14 was in no unit. A NUL in a keyword query raised `OperationalError: unterminated string`.
+- Fix 1: `SENTENCE` is now `[.!?]["'”’)]*(\s+)` and the split uses group 1, so closing quotes and brackets stay with
+  their sentence. The property test covers 3,000 seeded random documents (quotes, brackets, newlines, tabs, hard-split
+  runs of 400-1,700 characters): every non-whitespace character is in exactly one unit.
+- Boundary comparison (recorded before and after the fix): the 8 eval fixtures and the 4 T1 fixtures, 12 documents and
+  1,802 units, have identical unit boundaries. The USER independently confirmed the eval fixtures have no closing quote
+  or bracket after a sentence end, so the eval was not re-run.
+- Fix 2: `_sanitize` drops `"`, every C0 control character and DEL. With the vector tier forced down, queries with NUL
+  and other controls leave the status `ready` / `lexical` with no keyword-tier fault and `failed_retrievals` 0.
+- Fix 3: `_write_atomic` (temporary file, `os.replace`, temporary file removed on any failure) is used by both
+  `load_config` and `update_file`. A partial write and a failing `os.replace` both leave the old file byte-for-byte
+  and no temporary file.
+- Suites on `c90dfe7` (items 1-6, before the HISTORY addition): working tree with chromadb 369 OK (2 skipped),
+  `AGENT_HARNESS_BLOCK_MODULES=chromadb` 369 OK (2 skipped); fresh clone with chromadb 369 OK (2 skipped), fresh clone
+  in a new venv without chromadb 369 OK (4 skipped).
+- Suites on `48e127b` (with HISTORY.md and its two tests): my working-tree run with chromadb 371 OK (2 skipped); my
+  remaining runs were cut off (the blocked run's output is empty, and the fresh-clone runs did not start), so I do not
+  claim them. The USER verified 371 tests in both modes independently.
+- `docs/HISTORY.md`: from the USER's draft, with one correction (`dfcc9f1` is not an exact snapshot of epoch 2; seven
+  files differ from `62be955`). `HistoryDocTests` checks it names exactly `epoch-1-harness-0.1.0`, `epoch-2-rag-v1.0`,
+  `v0.2.0` and `v0.2.1`, that README links it, and that any of those tags that exists points at the commit it names.
+- Not done by the builder, by instruction: the epoch tags, the join onto `main`, any change to `main`.
 
 ## Parked: T6 Release
 
