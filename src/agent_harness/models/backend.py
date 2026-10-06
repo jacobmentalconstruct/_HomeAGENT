@@ -77,7 +77,8 @@ class Backend:
         """False for models that cannot chat, such as embedding models. Unknown counts as True."""
         return True
 
-    def chat(self, model: str, messages: list[dict], options: dict | None = None) -> ChatStream:
+    def chat(self, model: str, messages: list[dict], options: dict | None = None,
+             deadline: float | None = None) -> ChatStream:
         """`options` may hold `max_reply_tokens`, `temperature` and (Ollama) `think`."""
         raise NotImplementedError
 

@@ -1,2 +1,0 @@
-# Optional local vector store for the conversation memory cartridge.
-chromadb>=1.0,<2

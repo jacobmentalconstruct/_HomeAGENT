@@ -1,9 +1,9 @@
 # Memory watchlist
 
-These are known observations from the first local RAG review. They are not
-current defects or a commitment to expand T1. Keep them visible while using the
-cartridge and open a new, explicitly scoped tranche only when evidence shows a
-useful response is needed.
+Historical reference: these observations came from the first local RAG review.
+They describe the existing cartridge, not the active project roadmap. They are
+not current defects or commitments. Revisit them only if work on that cartridge
+is explicitly brought back into scope.
 
 ## Bounded query context
 

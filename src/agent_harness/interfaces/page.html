@@ -25,6 +25,10 @@
   #meter .bar span { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
   .marker { max-width: 46rem; margin: 6px auto 10px; padding-top: 6px; border-top: 1px dashed var(--line); text-align: center; color: var(--muted); font-size: 12px; }
   #banner { display: none; padding: 6px 12px; font-size: 14px; background: var(--panel); color: var(--bad); border-bottom: 1px solid var(--line); }
+  #memnote { display: none; padding: 6px 12px; font-size: 13px; background: var(--panel); color: var(--muted); border-bottom: 1px solid var(--line); }
+  #memnote.warn { color: var(--bad); }
+  #meter details { margin-top: 4px; }
+  #meter pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto; margin: 4px 0; font: 12px/1.4 ui-monospace, monospace; }
   main { flex: 1; display: flex; min-height: 0; position: relative; }
   #list { width: 260px; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); }
   #list button { display: block; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; }
@@ -39,6 +43,7 @@
   .err { color: var(--bad); font-size: 14px; margin-top: 4px; }
   form { display: flex; gap: 8px; padding: 8px 12px; padding-bottom: max(8px, env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); }
   textarea { flex: 1; resize: none; max-height: 30vh; }
+  #doc { display: none; flex: none; width: 100%; resize: vertical; max-height: 40vh; border-width: 1px 0 0; border-radius: 0; font-size: 14px; }
   #gate { position: fixed; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 5; }
   #gate div { max-width: 24rem; width: 100%; }
   #gate input { width: 100%; padding: 10px; margin: 10px 0; font: inherit; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
@@ -66,12 +71,15 @@
   <button id="new">New</button>
 </header>
 <div id="banner"></div>
+<div id="memnote"></div>
 <div id="meter"></div>
 <main>
   <nav id="list"></nav>
   <section id="chat">
     <div id="log"></div>
+    <textarea id="doc" rows="6" placeholder="Document: paste a long text here, then ask your question in the box below" spellcheck="false"></textarea>
     <form id="form">
+      <button id="docmode" type="button" title="Add a document to ask a question about">Document</button>
       <textarea id="text" rows="1" placeholder="Message" enterkeyhint="send"></textarea>
       <button id="send" class="primary" type="submit">Send</button>
     </form>
@@ -84,7 +92,7 @@ const store = {
   get(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
 };
-const state = { token: store.get("harness_token"), conv: null, busy: false, run: 0, reader: null };
+const state = { token: store.get("harness_token"), conv: null, busy: false, run: 0, reader: null, docOpen: false };
 const client = /Mobi|Android|iPhone/i.test(navigator.userAgent) ? "phone" : "desktop";
 
 async function api(path, options = {}) {
@@ -110,21 +118,48 @@ function showWindow(w) {
   document.querySelectorAll("#log .marker").forEach((e) => e.remove());
   const meter = $("meter");
   if (!w) { meter.style.display = "none"; return; }
-  if (w.memory && w.memory.state === "degraded") {
-    $("banner").textContent = "Conversation memory unavailable: " + w.memory.error;
-    $("banner").style.display = "block";
-  }
+  showMemory(w.memory);
   const pct = Math.min(100, Math.round(100 * w.estimated_tokens / w.budget));
   meter.textContent = "";
   meter.appendChild(el("div", "", "Context: about " + w.estimated_tokens + " of " + w.budget + " tokens"
     + (w.dropped ? " - " + w.dropped + " earlier message" + (w.dropped === 1 ? "" : "s") + " not sent" : "")));
   if (w.sources && w.sources.length) meter.appendChild(el("div", "", "Retrieved from: " + w.sources.map((s) => s.id).join(", ")));
+  if (w.derived) meter.appendChild(derivedBlock(w.derived));
   const bar = el("div", "bar"); const fill = el("span"); fill.style.width = pct + "%"; bar.appendChild(fill); meter.appendChild(bar);
   meter.style.display = "block";
   if (w.dropped > 0) {
     const first = document.querySelectorAll("#log .turn")[w.start];
     if (first) first.parentNode.insertBefore(el("div", "marker", "Earlier messages are kept, but no longer sent to the model"), first);
   }
+}
+
+// What an oversized message was turned into: the text the model saw, and where each piece came from.
+// Collapsed by default; everything is set as text, never as HTML.
+function derivedBlock(d) {
+  const spans = d.sources || [];
+  const box = el("details", "derived");
+  box.appendChild(el("summary", "", "Derived context (" + d.method + " v" + d.version + ", depth " + d.depth + ", " + spans.length + " source spans)"));
+  box.appendChild(el("div", "meta", "Built from your original message, which is kept unchanged. This is what the model was sent in its place:"));
+  box.appendChild(el("pre", "", d.text));
+  for (const s of spans) box.appendChild(el("div", "meta", "event " + s.event_id + (Array.isArray(s.char_range) ? ", chars " + s.char_range[0] + "-" + s.char_range[1] : ", range unknown")));
+  return box;
+}
+
+// Memory notes: informational for a disabled switch or a fallback tier, a warning when no tier works.
+function showMemory(m) {
+  const box = $("memnote");
+  let text = "", warn = false;
+  if (m && m.state === "disabled") text = "Conversation memory is disabled in config; set memory.enabled to true.";
+  else if (m && m.state === "degraded") { warn = true; text = "Conversation memory is unavailable: " + (m.error || "no retrieval tier works.") + (m.fix ? " Fix: " + m.fix : ""); }
+  else if (m && (m.tier === "lexical" || m.reason || m.store_reason)) {
+    const bits = [];
+    if (m.tier === "lexical") bits.push("Conversation memory is using keyword search only, so recall of reworded questions is weaker (" + (m.reason || "vector tier unavailable") + ").");
+    else if (m.reason) bits.push("Conversation memory note (" + m.reason + ").");
+    if (m.store_reason) bits.push(m.store_reason);
+    text = bits.join(" ") + (m.fix ? " Fix: " + m.fix : "");
+  }
+  box.textContent = text; box.className = warn ? "warn" : "";
+  box.style.display = text ? "block" : "none";
 }
 
 function scroll() { const log = $("log"); log.scrollTop = log.scrollHeight; }
@@ -142,8 +177,7 @@ async function loadModels() {
   }
   const want = [store.get("harness_model"), data.default].find((c) => c && [...select.options].some((o) => o.value === c));
   if (want) select.value = want;
-  if (status.memory && status.memory.state === "degraded")
-    down.push("conversation memory unavailable: " + status.memory.error);
+  showMemory(status.memory);
   $("banner").style.display = down.length ? "block" : "none";
   $("banner").textContent = down.length ? "Unavailable: " + down.join(", ") : "";
   $("send").disabled = !select.options.length;
@@ -198,7 +232,22 @@ async function openConversation(id) {
   loadList();
 }
 
-function setBusy(b) { state.busy = b; $("send").disabled = b || !$("model").options.length; $("text").disabled = b; }
+function setBusy(b) { state.busy = b; $("send").disabled = b || !$("model").options.length; $("text").disabled = b; $("doc").disabled = b; }
+
+// Document + Question: compose the "document, then a final Question: line" shape that the server's overflow
+// fallback reads. The server is unchanged; it only sees an ordinary message.
+const MESSAGE_LIMIT = 20000;
+function prepareMessage(doc, question) {
+  const q = question.trim(), d = doc.replace(/\s+$/, "");
+  let text = q;
+  if (d.trim()) {
+    if (!q) return { text: "", error: "Add a question below the document." };
+    text = d + "\nQuestion: " + q;
+  }
+  if (text.length > MESSAGE_LIMIT)
+    return { text: "", error: "That message is " + text.length.toLocaleString("en-US") + " characters; the limit is 20,000. Shorten the document." };
+  return { text, error: "" };
+}
 
 async function newConversation() {
   const res = await api("/api/conversations", { method: "POST", body: "{}" });
@@ -207,11 +256,12 @@ async function newConversation() {
   $("text").focus();
 }
 
-async function send(text) {
+async function send(text, parts) {
   // A message the server did not record: say why, give the text back, and redraw from the record,
   // so the page never shows turns the conversation does not have.
   const reject = async (message) => {
-    $("text").value = text; setBusy(false);
+    if (parts && parts.doc) $("doc").value = parts.doc;
+    $("text").value = parts ? parts.question : text; setBusy(false);
     if (state.conv) { try { await openConversation(state.conv); } catch (e) { /* the server is unreachable */ } }
     $("banner").textContent = message; $("banner").style.display = "block";
   };
@@ -261,6 +311,8 @@ async function follow(generationId, attempt = 0) {
         if (m.type === "snapshot") { turn.body.textContent = m.text; waiting(note, m); if (m.window) showWindow(m.window); finished = finished || end(turn, note, m); }
         else if (m.type === "position") note.textContent = m.position > 0 ? "Waiting for the model (" + m.position + " ahead)" : "";
         else if (m.type === "running") { note.textContent = ""; if (m.window) showWindow(m.window); }
+        else if (m.type === "progress") note.textContent = "Preparing context (" + m.completed + "/" + m.total + ")";
+        else if (m.type === "reset") turn.body.textContent = "";
         else if (m.type === "delta") { turn.body.textContent += m.text; scroll(); }
         else if (m.type === "done") finished = end(turn, note, { state: "done", summary: m.summary });
         else if (m.type === "failed") finished = end(turn, note, { state: "failed", error: m.error, text: m.error.partial_text });
@@ -282,7 +334,21 @@ function end(turn, note, m) {
   return false;
 }
 
-$("form").onsubmit = (e) => { e.preventDefault(); const text = $("text").value.trim(); if (!text || state.busy) return; $("text").value = ""; grow(); send(text); };
+$("form").onsubmit = (e) => {
+  e.preventDefault();
+  if (state.busy) return;
+  const parts = { doc: state.docOpen ? $("doc").value : "", question: $("text").value };
+  const { text, error } = prepareMessage(parts.doc, parts.question);
+  if (error) { $("banner").textContent = error; $("banner").style.display = "block"; return; }
+  if (!text) return;
+  $("text").value = ""; $("doc").value = ""; grow(); send(text, parts);
+};
+$("docmode").onclick = () => {
+  state.docOpen = !state.docOpen;
+  $("doc").style.display = state.docOpen ? "block" : "none";
+  $("text").placeholder = state.docOpen ? "Your question" : "Message";
+  if (state.docOpen) $("doc").focus(); else $("text").focus();
+};
 $("text").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !/Mobi|Android|iPhone/i.test(navigator.userAgent)) { e.preventDefault(); $("form").requestSubmit(); } };
 $("text").oninput = grow;
 function grow() { const t = $("text"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, window.innerHeight * 0.3) + "px"; }

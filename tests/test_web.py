@@ -44,7 +44,8 @@ class Base(unittest.TestCase):
         self.loc.config_file.write_text(json.dumps({
             "token": TOKEN, "require_token": require_token, "host": "127.0.0.1",
             "backends": [{"id": "ol", "kind": "ollama", "url": self.fake.url}],
-            "default_model": "ol:fake:1b", "timeouts": {"first_byte": 8, "idle": 8, "total": 30}}))
+            "default_model": "ol:fake:1b", "memory": {"enabled": False},
+            "timeouts": {"first_byte": 8, "idle": 8, "total": 30}}))
         self.app = build_app(self.loc)
         self.addCleanup(self.app.close)
         self.server = web.make_server(self.app, "127.0.0.1", 0, max_handlers=max_handlers, log=log)

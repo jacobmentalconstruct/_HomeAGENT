@@ -32,8 +32,10 @@ DEFAULTS = {
     "system_prompt": "You are a helpful assistant running privately on the user's home network. Be concise and honest.",
     # How long Ollama keeps a model in GPU memory after its last reply. Shorter frees the GPU sooner for other uses.
     "keep_alive": "3m",
-    "memory": {"enabled": False, "store": "chroma", "embedding_backend": "ollama",
-               "embedding_model": "nomic-embed-text", "top_k": 4},
+    # When one message is too big for the model, find the passages that answer its final "Question:" line. Off: it just fails.
+    "overflow_fallback": True,
+    "memory": {"enabled": True, "store": "chroma", "strict": False,
+               "embedding_backend": "ollama", "embedding_model": "nomic-embed-text", "top_k": 4},
 }
 
 
@@ -70,6 +72,7 @@ class Config:
     default_model: str
     system_prompt: str
     keep_alive: str
+    overflow_fallback: bool
     memory: MemoryConfig
 
 
@@ -77,6 +80,7 @@ class Config:
 class MemoryConfig:
     enabled: bool
     store: str
+    strict: bool
     embedding_backend: str
     embedding_model: str
     top_k: int
@@ -147,16 +151,26 @@ def word_token(count: int = 5) -> str:
 _WRITE_LOCK = threading.Lock()
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """Write a private scratch file, then swap it in, so a reader never sees half a file and a failed write leaves
+    the old file as it was. The scratch file is removed if anything goes wrong."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    scratch = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        scratch.write_text(text, encoding="utf-8")
+        os.replace(scratch, path)
+    except BaseException:
+        scratch.unlink(missing_ok=True)
+        raise
+
+
 def update_file(path: Path, **values: object) -> None:
     """Change keys in the config file and keep everything else. One writer at a time; written whole to a
     private scratch file, then swapped in, so a reader never sees half a file."""
     with _WRITE_LOCK:
         stored = _read(path)
         stored.update(values)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        scratch = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-        scratch.write_text(json.dumps(stored, indent=2), encoding="utf-8")
-        os.replace(scratch, path)
+        _write_atomic(path, json.dumps(stored, indent=2))
 
 
 def load_config(path: Path) -> Config:
@@ -174,8 +188,8 @@ def load_config(path: Path) -> Config:
         merged["token"] = secrets.token_urlsafe(24)
     config = _build(merged)
     if merged != stored:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+        with _WRITE_LOCK:
+            _write_atomic(path, json.dumps(merged, indent=2))
     return config
 
 
@@ -203,6 +217,8 @@ def _build(merged: dict) -> Config:
     if reply > largest_reply(num_ctx):
         raise ConfigError(f"'max_reply_tokens' ({reply}) is too large for 'num_ctx' ({num_ctx}): it must be at most "
                           f"{largest_reply(num_ctx)} so the prompt keeps room.")
+    if not isinstance(merged["overflow_fallback"], bool):
+        raise ConfigError(f"'overflow_fallback' must be true or false, got {merged['overflow_fallback']!r}.")
     memory_raw = merged["memory"]
     if not isinstance(memory_raw, dict):
         raise ConfigError("'memory' must be an object.")
@@ -210,8 +226,11 @@ def _build(merged: dict) -> Config:
     if not isinstance(enabled, bool):
         raise ConfigError("'memory.enabled' must be true or false.")
     store = memory_raw.get("store")
-    if store != "chroma":
-        raise ConfigError("'memory.store' must be 'chroma'.")
+    if store not in ("chroma", "sqlite"):
+        raise ConfigError("'memory.store' must be 'chroma' or 'sqlite'.")
+    strict = memory_raw.get("strict")
+    if not isinstance(strict, bool):
+        raise ConfigError("'memory.strict' must be true or false.")
     embed_backend = _text("memory.embedding_backend", memory_raw.get("embedding_backend"))
     embed_model = _text("memory.embedding_model", memory_raw.get("embedding_model"))
     if not embed_backend.strip() or not embed_model.strip():
@@ -219,10 +238,14 @@ def _build(merged: dict) -> Config:
     top_k = int(_positive("memory.top_k", memory_raw.get("top_k"), whole=True))
     if top_k > 20:
         raise ConfigError("'memory.top_k' must be at most 20.")
-    if enabled and (embed_backend not in seen or not any(b.id == embed_backend and b.kind == "ollama"
-                                                        for b in backends)):
-        raise ConfigError("'memory.embedding_backend' must name a configured Ollama backend.")
+    _default_embed_backend = DEFAULTS["memory"]["embedding_backend"]
+    if enabled:
+        if embed_backend in seen and not any(
+                b.id == embed_backend and b.kind == "ollama" for b in backends):
+            raise ConfigError("'memory.embedding_backend' must name a configured Ollama backend.")
+        if embed_backend not in seen and embed_backend != _default_embed_backend:
+            raise ConfigError("'memory.embedding_backend' must name a configured Ollama backend.")
     return Config(host, port, merged["require_token"], _token(merged["token"]), backends, timeouts, num_ctx, reply,
                   _text("default_model", merged["default_model"]), _text("system_prompt", merged["system_prompt"]),
-                  _text("keep_alive", merged["keep_alive"]),
-                  MemoryConfig(enabled, store, embed_backend, embed_model, top_k))
+                  _text("keep_alive", merged["keep_alive"]), merged["overflow_fallback"],
+                  MemoryConfig(enabled, store, strict, embed_backend, embed_model, top_k))

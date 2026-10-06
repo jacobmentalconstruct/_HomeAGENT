@@ -4,6 +4,8 @@ Settings live in `runtime/config.json`, created on first run with defaults and a
 
 If a value is invalid, the server refuses to start and says which one. (`keep_alive` is passed to Ollama as written, so Ollama judges it.) The file is written with every setting the first time the program runs, so a later version's new defaults do not change an existing file; delete a key to get its default back.
 
+Ollama chat requests set `truncate=false`, so Ollama rejects rather than silently dropping content if a request exceeds the model context. The harness selects recent context within its own prompt budget and applies the overflow fallback (`overflow_fallback`, below) to supported oversized newest messages. Other oversized message shapes fail visibly. A request that fits the harness budget is sent normally.
+
 ## Settings
 
 | Key | Default | Meaning |
@@ -19,35 +21,105 @@ If a value is invalid, the server refuses to start and says which one. (`keep_al
 | `default_model` | `"ollama:qwen3.5:9b"` | The model new devices start on, as `backend_id:model`. You can also set it from the page. If it is not installed, the page uses the first chat model it finds. |
 | `system_prompt` | a short, honest-assistant prompt | The instruction sent ahead of every conversation. |
 | `keep_alive` | `"3m"` | How long Ollama keeps a model in GPU memory after its last reply. A shorter value, such as `"1m"`, frees the GPU sooner. |
-| `memory` | disabled | Optional local retrieval cartridge. See below. |
+| `overflow_fallback` | `true` | When one message is too big for the model, find the passages that answer its final `Question:` line and send those instead (see the README). `false`: the message fails with the plain `context_exceeded` message, and a backend context error is not retried. Restart after changing it. |
+| `memory` | enabled | Local retrieval cartridge; enabled by default on new installs. See below. |
+
+## Size limits for one message
+
+Three limits decide what happens to one large message:
+
+1. **The message cap.** The server accepts at most 20,000 characters of message text (and the page refuses more before
+   sending). This applies to the Document + Question fields too, because they send one message.
+2. **The prompt budget.** A message is sent as it is when it fits the prompt budget (`num_ctx` less a 10% margin, less
+   `max_reply_tokens`). Only a message that does not fit goes to the overflow fallback. So the fallback can only be
+   reached for messages between the size that fits and 20,000 characters.
+3. **The chunk cap.** The document part the fallback reads (everything between the kept start and end) must fit eight
+   extraction chunks of 40% of `num_ctx` each, overlapping by about 12%. In characters that is roughly
+   20,200 at `num_ctx` 2,048, 40,400 at 4,096, 80,700 at 8,192 and 161,500 at 16,384. At 2,048 it is about the same
+   as the message cap; above that the 20,000-character cap is the tighter limit.
+
+Characters below are estimates from the code at 3.5 characters per token, the value used before a model has been
+measured, for a single message with no system prompt. Once a model's real ratio is learned the numbers move (Qwen models
+usually measure more characters per token, which raises them), and a system prompt and earlier turns take some budget.
+
+| `num_ctx` | `max_reply_tokens` | Prompt budget (tokens) | Largest message that fits (characters) | Messages that can reach the fallback |
+|---|---|---|---|---|
+| 2,048 | 256 | 1,587 | 5,505 | 5,506 to 20,000 characters |
+| 4,096 | 256 | 3,430 | 11,956 | 11,957 to 20,000 characters |
+| 4,096 | 2,048 | 1,638 | 5,684 | 5,685 to 20,000 characters |
+| 8,192 | 256 | 7,116 | 24,857 | never: every message the server accepts already fits |
+| 8,192 | 2,048 | 5,324 | 18,585 | 18,586 to 20,000 characters (the defaults) |
+| 16,384 | 256 | 14,489 | 50,662 | never: every message the server accepts already fits |
+| 16,384 | 2,048 | 12,697 | 44,390 | never: every message the server accepts already fits |
+
+In short: at `num_ctx` 2,048 or 4,096 the fallback covers most of the range up to 20,000 characters. At the default
+8,192 with a 2,048-token reply it covers only about the last 1,400 characters below the cap. At 8,192 with a 256-token
+reply, and at 16,384, a message the server accepts always fits, so the fallback is never needed from the page. The one
+exception is Ollama's own count: if Ollama measures more tokens than the estimate and refuses the request, the
+Ollama-only reactive retry still runs the fallback.
 
 ## Conversation memory
 
-Memory is optional and disabled by default. To attach the v1 cartridge, install the optional dependency with `python -m pip install -r requirements-rag.txt`, pull an Ollama embedding model (for example `ollama pull nomic-embed-text`), then set:
+Memory is enabled by default on new installs. To use vector recall, pull an Ollama embedding model (`ollama pull nomic-embed-text`); the server detects it automatically. Without it, memory still works through the keyword (FTS5) tier, with weaker recall of reworded questions. To disable memory entirely, set `"enabled": false` and restart.
 
 ```json
 "memory": {
   "enabled": true,
-  "store": "chroma",
   "embedding_backend": "ollama",
   "embedding_model": "nomic-embed-text",
   "top_k": 4
 }
 ```
 
+**Tiers.** Memory uses two retrieval tiers in order of preference:
+
+1. **Vector tier** (Chroma or SQLite dot-product): semantic similarity using Ollama embeddings. Requires the embedding model. Chroma is recommended (`python -m pip install -r requirements.txt`); without it the SQLite vector store is used instead.
+2. **Lexical tier** (FTS5 BM25): keyword matching with SQLite's built-in full-text search and no extra packages. It is a separate index (`runtime/memory/lexical.sqlite3`), opened and kept up to date whenever memory is enabled, whichever vector store is in use. It serves when the vector tier cannot: embedding model missing, an embedding error, an incompatible index, or no embedding backend. Results carry `"method": "lexical"`.
+
+Only the server process (`harness.py serve`) opens the memory stores or indexes anything. `status`, `models`, `token`, `link`, `unload` and `smoke` never touch them, and `harness.py status` reports the memory configuration from the config file alone.
+
+A schema or identity mismatch never triggers the SQLite vector fallback: the vector tier is refused (reason `index_incompatible`), the keyword tier keeps serving, and removing `runtime/memory/` rebuilds the vector index.
+
 | Memory key | Default | Meaning |
 |---|---|---|
-| `enabled` | `false` | Attach the conversation memory cartridge when `true`; restart after changing it. |
-| `store` | `"chroma"` | The only supported store is `chroma`. |
-| `embedding_backend` | `"ollama"` | ID of a configured Ollama backend used to make embeddings. |
+| `enabled` | `true` | Attach the conversation memory cartridge; restart after changing it. |
+| `store` | `"chroma"` | Preferred vector store: `"chroma"` or `"sqlite"`. |
+| `strict` | `false` | When `false`, a Chroma failure falls back to the SQLite vector store automatically. When `true`, there is no SQLite vector fallback: the vector tier is reported unavailable (`vector_store_unavailable`) and the keyword tier serves. |
+| `embedding_backend` | `"ollama"` | ID of a configured Ollama backend used to make embeddings. If the default `ollama` is not configured, memory runs on the keyword tier and says why (`embedding_backend_missing`); a name you set that is not configured, or is not an Ollama backend, is a config error. |
 | `embedding_model` | `"nomic-embed-text"` | Name of the Ollama embedding model to pull and use. |
 | `top_k` | `4` | Number of older matches requested per reply, from 1 to 20. |
 
-Restart the server after changing this setting. The cartridge stores a persistent index in `runtime/memory/`; the conversation event log remains authoritative and missing entries are indexed from it before retrieval. Retrieval is limited to the active conversation. The status endpoint reports whether memory is disabled, ready, or degraded. If the embedding model changes, stop the server and remove `runtime/memory/` to rebuild vectors with a consistent model. The original conversation history remains in `runtime/harness.sqlite3`.
+### Memory status
+
+The `/api/status` endpoint and each reply's `window.memory` field report memory state:
+
+| Field | Values | Meaning |
+|---|---|---|
+| `state` | `ready`, `degraded`, `disabled` | `ready`: at least one tier works, including when only the keyword tier does. `degraded`: no tier works. `disabled`: `memory.enabled` is `false` in config. |
+| `tier` | `vector`, `lexical`, `none` | The tier retrieval is using now. `none` only when degraded. It follows what actually served the last retrieval, not a startup guess. |
+| `reason` | `""`, `embedding_model_missing`, `embedding_unavailable`, `embedding_backend_missing`, `index_incompatible`, `vector_store_unavailable`, `lexical_unavailable`, `transient`, `all_tiers_failed` | Machine-readable cause when not fully healthy. |
+| `fix` | human text or `""` | What to do, for example `run: ollama pull nomic-embed-text`. |
+| `store`, `store_reason` | `chroma` or `sqlite`; text or `""` | The vector store in use, and why it is not the one configured, for example `chroma unavailable (ImportError); using sqlite fallback.` Empty when the configured store is in use. Not present when memory is disabled. |
+| `retry_in_seconds`, `probe_failures` | seconds, count | While the vector tier is backing off: seconds until the next probe (0 when due or healthy) and consecutive failed probes. |
+| `failed_retrievals`, `last_error` | count, text | Replies where every tier failed and nothing could be retrieved. The page and `/api/status` show these instead of silently returning nothing. |
+
+An embedding failure is never a degrade: it moves retrieval to the keyword tier, and memory recovers by itself once Ollama or the model is back. Recovery is a bounded re-probe: the vector tier is skipped while it backs off, then probed on a background thread after 5 s, 10 s, 20 s and so on, never more than 300 s apart, with one probe at a time and one embedding call per probe. `retry_in_seconds` and `probe_failures` in the status show where it stands. Replies never wait on a failing embedder after the first failure. Ollama model names are matched with a missing tag read as `:latest`, so `nomic-embed-text` finds `nomic-embed-text:latest`.
+
+**SQLite store practical scale (768-dim vectors, this machine, 2026-10-05):**
+
+| Indexed vectors | Query time |
+|---|---|
+| 1 000 | ~58 ms |
+| 5 000 | ~290 ms |
+| 20 000 | ~1 160 ms |
+
+An index on `conversation_id` limits a query to the active conversation's vectors, and every one of those is scanned (no vector index); time scales linearly with count and dimension. At 5 000 vectors, query time is ~290 ms per reply; beyond that, Chroma is preferable for latency-sensitive use. The SQLite store is suitable as a fallback tier at home-assistant scale (up to a few thousand indexed turns).
+
+Restart the server after changing this setting. The cartridge stores a persistent index in `runtime/memory/`; the conversation event log remains authoritative and missing entries are indexed from it before retrieval. Retrieval is limited to the active conversation. The status endpoint reports memory state, the active tier and store, and any reason and fix. If the embedding model changes, stop the server and remove `runtime/memory/` to rebuild vectors with a consistent model. The original conversation history remains in `runtime/harness.sqlite3`.
 
 If a model is re-pulled or replaced under the same name, the cartridge detects the change only when its vector dimensions differ. Rebuild `runtime/memory/` manually if the model's embeddings changed without a name or dimension change.
 
-Indexing adds local embedding work and disk use. Chroma's persistent local client is suitable for this prototype; this is not a multi-process or networked store.
+Indexing adds local embedding work and disk use. Chroma's persistent local client and the SQLite store are both suitable for single-process prototype use; neither is a multi-process or networked store.
 
 ## Backends
 
@@ -83,4 +155,4 @@ A llama.cpp server hosts one model, fixed when you start it, so its context size
 
 ## Where data lives
 
-`runtime/config.json` holds the settings and token. `runtime/harness.sqlite3` holds every conversation. When the conversation memory cartridge is enabled, `runtime/memory/` holds its derived Chroma index, including a plaintext copy of indexed conversation turns. Runtime data is ignored by git; back up the event log and config if you need to preserve conversations and access settings. The memory index can be rebuilt from the event log.
+`runtime/config.json` holds the settings and token. `runtime/harness.sqlite3` holds every conversation. `runtime/memory/` holds the memory cartridge's derived indexes (the vector store and `lexical.sqlite3`), including a plaintext copy of indexed conversation turns. Runtime data is ignored by git; back up the event log and config if you need to preserve conversations and access settings. The memory index can be rebuilt from the event log.

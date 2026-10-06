@@ -7,9 +7,13 @@ import argparse
 from ..app import App, build_app
 from .. import __version__
 from ..config import ConfigError, update_file, word_token
+from ..memory.cartridge import describe
 from ..models.errors import BackendError, UnknownModelChoice
 from .control import lan_addresses
 from .web import make_server
+
+
+MEMORY_COMMANDS = frozenset({"serve"})  # only the server process owns the memory stores
 
 
 def _positive_int(text: str) -> int:
@@ -25,6 +29,13 @@ def _status(app: App, _args) -> int:
     print(f"database: {app.locations.database}")
     print(f"listen:   {app.config.host}:{app.config.port} (token required: {app.config.require_token})")
     print(f"events:   {app.events.count()}")
+    memory = app.config.memory
+    if memory.enabled:
+        print(f"memory:   enabled in config (preferred store: {memory.store}, embeddings: "
+              f"{memory.embedding_backend}:{memory.embedding_model}); the running server reports its "
+              "tier and any fallback on the page and in /api/status")
+    else:
+        print(f"memory:   {describe({'state': 'disabled'})[1]}")
     return 0
 
 
@@ -74,6 +85,9 @@ def _serve(app: App, _args) -> int:
     print(f"listening on {host}:{port}")
     for address in ["127.0.0.1", *addresses] if host == "0.0.0.0" else [host]:
         print(f"  open http://{address}:{port}/")
+    note = describe(app.memory.status())
+    status = app.memory.status()
+    print("memory:   " + (note[1] if note else f"ready ({status['tier']} tier, {status['store']} store)"))
     print("token: run `python harness.py token` to show it. Stop with Ctrl+C. "
           "Requests are logged below (never the token or message text).")
     try:
@@ -134,11 +148,15 @@ def main(argv: list[str]) -> int:
     smoke.add_argument("--max-tokens", type=_positive_int, default=None)
     args = parser.parse_args(argv)
     if args.command == "gui":  # a window that runs the server as a child process; it never opens the database
-        from .gui import run  # tkinter is only needed for this command
-
+        try:
+            from .gui import run  # tkinter is only needed for this command
+        except ImportError as exc:
+            print(f"The control panel needs tkinter, which this Python does not have ({exc}). "
+                  "Run `python harness.py serve` instead; the page works the same.")
+            return 1
         return run(autostart=not args.no_start)
     try:
-        app = build_app()
+        app = build_app(with_memory=args.command in MEMORY_COMMANDS)
     except ConfigError as exc:
         print(f"config error: {exc}")
         return 1

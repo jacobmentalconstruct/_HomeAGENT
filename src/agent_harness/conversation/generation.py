@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 import uuid
 from collections import OrderedDict
 
 from ..models.errors import BackendError
 from ..models.registry import ModelRegistry
+from . import overflow
 from .manager import ConversationManager
 from .window import ContextTooLarge, TokenEstimator, budget_tokens, choose_window
 
@@ -89,6 +91,8 @@ class Generation:
             kind = message["type"]
             if kind == "delta":
                 self.text += message["text"]
+            elif kind == "reset":
+                self.text = ""
             elif kind == "position":
                 self.position = message["position"]
             elif kind == "running":
@@ -114,10 +118,14 @@ class GenerationRunner:
 
     def __init__(self, conversations: ConversationManager, models: ModelRegistry, *,
                  system_prompt: str = "", num_ctx: int = 8192, reply_tokens: int = 2048,
-                 options: dict | None = None, memory=None):
+                 options: dict | None = None, memory=None, overflow_fallback: bool = True,
+                 overflow_composition: str = overflow.DEFAULT_COMPOSITION):
         self.conversations, self.models = conversations, models
         self.system_prompt, self.options = system_prompt, options
         self.memory = memory
+        self.overflow_fallback = overflow_fallback
+        self.overflow_composition = overflow_composition
+        self.num_ctx = num_ctx
         self.budget = budget_tokens(num_ctx, reply_tokens)
         self.estimator = TokenEstimator()
         for sample in conversations.samples():  # remember what past replies measured
@@ -163,25 +171,66 @@ class GenerationRunner:
         stream = None
         try:
             turnstile.wait_turn(ticket, lambda ahead: gen.publish({"type": "position", "position": ahead}))
+            deadline = time.monotonic() + backend.transport.timeouts.total
             try:
-                retrieved = (self.memory.retrieve(gen.prompt, gen.conversation_id,
+                history = self.conversations.history_indexed(gen.conversation_id)
+                system = [{"role": "system", "content": self.system_prompt}] if self.system_prompt else []
+                system_tokens = self.estimator.messages(model, system)
+                if system_tokens > self.budget:
+                    error = ContextTooLarge(system_tokens, self.budget, "system prompt")
+                    raise BackendError("context_exceeded", str(error))
+                query = gen.prompt
+                if history and self.estimator.messages(model, system + [history[-1][1]]) > self.budget:
+                    query = overflow.bounded_question(gen.prompt, max(64, int(self.budget * self.estimator.ratio(model))))
+                retrieved = (self.memory.retrieve(query, gen.conversation_id,
                                                   self.conversations.event_history(gen.conversation_id))
                              if self.memory is not None else [])
-                window = choose_window(self.conversations.history_indexed(gen.conversation_id),
-                                       self.system_prompt, gen.model, self.estimator, self.budget, retrieved)
-            except ContextTooLarge as exc:  # nothing is sent: better a clear failure than a silent cut
-                raise BackendError("context_exceeded", str(exc)) from exc
+                window = choose_window(history, self.system_prompt, gen.model,
+                                       self.estimator, self.budget, retrieved)
+                derived = None
+            except ContextTooLarge as exc:
+                if not self.overflow_fallback:
+                    raise BackendError("context_exceeded", str(exc)) from exc
+                derived, history = self._derive(gen, backend, model, history, retrieved, deadline,
+                                                overflow_message=str(exc))
+                window = choose_window(history, self.system_prompt, gen.model,
+                                       self.estimator, self.budget, retrieved)
             window_record = window.record()
             if self.memory is not None:
                 window_record["memory"] = self.memory.status()
+            if derived is not None:
+                window_record["derived"] = derived
             gen.publish({"type": "running", "window": window_record})
-            stream = backend.chat(model, window.messages, self.options)
-            for chunk in stream:
-                gen.publish({"type": "delta", "text": chunk})
+            try:
+                stream = backend.chat(model, window.messages, self.options, deadline=deadline)
+                for chunk in stream:
+                    gen.publish({"type": "delta", "text": chunk})
+            except BackendError as exc:
+                if (exc.reason != "context_exceeded" or derived is not None or backend.config.kind != "ollama"
+                        or not self.overflow_fallback):
+                    raise
+                gen.publish({"type": "reset"})
+                stream = None
+                history = self.conversations.history_indexed(gen.conversation_id)
+                derived, history = self._derive(gen, backend, model, history, retrieved, deadline,
+                                                overflow_message=exc.message)
+                window = choose_window(history, self.system_prompt, gen.model,
+                                       self.estimator, self.budget, retrieved)
+                window_record = window.record()
+                if self.memory is not None:
+                    window_record["memory"] = self.memory.status()
+                window_record["derived"] = derived
+                gen.publish({"type": "running", "window": window_record})
+                stream = backend.chat(model, window.messages, self.options, deadline=deadline)
+                for chunk in stream:
+                    gen.publish({"type": "delta", "text": chunk})
             summary = stream.summary
             self.estimator.learn(gen.model, window.chars, window.message_count, summary.prompt_tokens)
             self.conversations.finish_turn(gen.conversation_id, gen.id, stream.text, gen.model, summary,
                                            window_record)
+            if self.memory is not None:
+                self.memory.reconcile_in_background(
+                    self.conversations.event_history(gen.conversation_id))
             gen.publish({"type": "done", "summary": {"stop_reason": summary.stop_reason,
                                                     "prompt_tokens": summary.prompt_tokens,
                                                     "reply_tokens": summary.reply_tokens}}, final=True)
@@ -193,6 +242,19 @@ class GenerationRunner:
             turnstile.done()
             if gen.state in ("queued", "running"):  # last resort: never leave a reply unresolved
                 self._fail(gen, "internal_error", "The reply ended without a result.", gen.text)
+
+    def _derive(self, gen: Generation, backend, model, history: list[tuple[int, dict]],
+                retrieved: list[dict], deadline: float, overflow_message: str = "") -> tuple[dict, list[tuple[int, dict]]]:
+        event = next((item for item in reversed(self.conversations.event_history(gen.conversation_id))
+                      if item.kind == "turn.user" and item.payload.get("generation_id") == gen.id), None)
+        if event is None:
+            raise BackendError("context_exceeded", "The source event for this message is unavailable.")
+        return overflow.derive_context(
+            gen.prompt, history, event.seq, model, backend, self.estimator, self.budget,
+            self.num_ctx, self.system_prompt, retrieved, self.options, deadline,
+            lambda phase, completed, total: gen.publish({"type": "progress", "phase": phase,
+                                                          "completed": completed, "total": total}),
+            overflow_message=overflow_message, composition=self.overflow_composition)
 
     def _fail(self, gen: Generation, reason: str, message: str, partial: str) -> None:
         self.conversations.fail_turn(gen.conversation_id, gen.id, gen.model, reason, message, partial)

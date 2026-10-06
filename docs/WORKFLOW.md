@@ -1,6 +1,6 @@
 # Workflow
 
-This is the working pattern for all project work: tranches, repair passes, cleanups, and packaging. It exists so a fresh USER or AGENT can pick up the project without having to infer the rhythm from chat history.
+This is the working pattern for all project work: tranches, repair passes, cleanups, and packaging. It exists so a fresh USER or AGENT can resume from the project record without depending on chat history or a still-running machine. The active product target and stop conditions live in `PROJECT-CHARTER.md`.
 
 ## The Cycle
 
@@ -22,7 +22,7 @@ This is the working pattern for all project work: tranches, repair passes, clean
 ## Addendums
 
 - Keep tranches small. Tightly scoped work is easier to test, easier to park, and easier to resume.
-- Keep every write boundary explicit: it should always be clear which participant may change what, and changes the user must approve go through an explicit approval step. Agents propose; approved operations act.
+- Keep every write boundary explicit: it should be clear which participant may change what, and changes the user must approve go through an explicit approval step. Agents propose; approved operations act.
 - Do not expand feature scope just because the code is warm. New behavior goes into the next tranche unless required to satisfy current acceptance criteria.
 - Future tranches are provisional until reached; evidence from completed work may change the planned path.
 - Changes of direction, tranche status, verification evidence, public or user-facing instructions, known limitations, deferrals, and stop criteria are recorded in the project record, not only in chat.
@@ -68,11 +68,11 @@ A tranche is parked only when:
 
 ## The Project Record in This Repo
 
-There is no separate journal. The record is kept in three places, and nothing else:
+There is no separate journal. Keep the authoritative recovery record in `PLAN.md`, supported by the charter and architecture/workflow documents:
 
 | Step | Where it is recorded |
 |---|---|
-| 2 Declare state; 12 Park; 13 Reorient | `PLAN.md` Present and Current work. Parking adds a short entry to the `PLAN.md` Log: outcome, evidence (commands run and their results), limitations, deferrals, next step. |
+| 2 Declare state; 12 Park; 13 Reorient | `PLAN.md` current state and active work. Parking adds a short entry to its Log: outcome, evidence (commands run and their results), limitations, deferrals, next step, and exact resume point. |
 | Decisions, deferrals, scope changes | `PLAN.md` Decisions and Backlog. |
-| Branches | Each tranche is built on its own branch, `t<n>-<slug>` (e.g. `t0-skeleton`), and merged into `main` only after the user accepts the park. `main` always holds the last accepted state. |
+| Branches | Each tranche is built on its own branch, `t<n>-<slug>`, and merged into `main` only after the user accepts the park. `main` always holds the last accepted state. |
 | Proof over vibes | The command and its output summary go in the parked entry. The commit that parks a tranche is named `T<n>: <outcome>`, so `git log --oneline` reads as the tranche history. |

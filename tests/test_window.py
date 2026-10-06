@@ -1,13 +1,26 @@
 import threading
+import time
 import unittest
+import hashlib
+from unittest import mock
 
 from tests import support  # noqa: F401
-from tests.fake_backends import ollama_chunk, ollama_reply
+from tests.fake_backends import FakeBackend, ollama_chunk, ollama_reply
+from tests.test_conversation import PATIENT
+from agent_harness.config import BackendConfig, Timeouts
 from tests.test_conversation import Base, drain, outcome, watch
+from agent_harness.conversation import overflow
 from agent_harness.conversation import window
 from agent_harness.conversation.generation import GenerationRunner
 from agent_harness.conversation.manager import ConversationManager
 from agent_harness.conversation.window import (ContextTooLarge, TokenEstimator, budget_tokens, choose_window)
+from agent_harness.models.ollama import OllamaBackend
+from agent_harness.models.llamacpp import LlamaCppBackend
+from agent_harness.models.registry import ModelRegistry
+from agent_harness.models.transport import Transport
+from tests.overflow_fixtures import (CHUNK_SIZE_FRACTION, MAX_REPLY_TOKENS, NUM_CTX, OVERFLOW_CONFIG,
+                                     hardwrapped_document, middle_document, negative_document,
+                                     primary_document, script_for)
 
 MODEL = "ol:fake:1b"
 
@@ -102,6 +115,7 @@ class WindowChoiceTests(unittest.TestCase):
         with self.assertRaises(ContextTooLarge) as caught:
             choose_window([(0, msg("hi"))], "s" * 5000, MODEL, TokenEstimator(), 600)
         self.assertIn("system prompt", str(caught.exception))
+        self.assertEqual(caught.exception.what, "system prompt")
         self.assertNotIn("This message", str(caught.exception))
 
     def test_an_empty_history_sends_just_the_system_prompt(self):
@@ -119,6 +133,15 @@ class RunnerWindowTests(Base):
 
     def runner_for(self, *scripts):
         return self.runner(*scripts, num_ctx=self.NUM_CTX, reply_tokens=self.REPLY)
+
+    def overflow_runner(self, *scripts):
+        fake = FakeBackend("ollama", scripts=scripts)
+        self.addCleanup(fake.stop)
+        backend = OllamaBackend(BackendConfig("ol", "ollama", fake.url), Transport(PATIENT), NUM_CTX,
+                                MAX_REPLY_TOKENS)
+        self.registry = ModelRegistry([backend])
+        return fake, GenerationRunner(self.conversations, self.registry, num_ctx=NUM_CTX,
+                                      reply_tokens=MAX_REPLY_TOKENS)
 
     def talk(self, runner, conv, texts):
         for text in texts:
@@ -139,6 +162,311 @@ class RunnerWindowTests(Base):
         self.assertEqual(window_record["budget"], 600)
         assistant = [e for e in self.store.read(conversation_id=conv) if e.kind == "turn.assistant"][-1]
         self.assertEqual(assistant.payload["window"], window_record)
+
+    def test_near_limit_chat_is_sent_unchanged_with_ollama_truncation_disabled(self):
+        content = "bounded near-limit request " * 75
+        fake, runner = self.runner_for(ollama_reply(["ok"]))
+        conv = self.conversations.create()
+        gen = runner.send(conv, content, MODEL)
+        self.assertEqual(outcome(*watch(gen))["type"], "done")
+
+        sent = fake.requests[0]["body"]
+        self.assertIs(sent["truncate"], False)
+        self.assertEqual(sent["messages"], [msg(content)])
+        window_record = gen.snapshot()["window"]
+        self.assertGreater(window_record["estimated_tokens"], window_record["budget"] * 0.95)
+
+    def test_queue_wait_does_not_consume_generation_total_timeout(self):
+        release = threading.Event()
+        fake = FakeBackend("ollama", scripts=[
+            [("hold", release)] + ollama_reply(["first"]),
+            ollama_reply(["second"]),
+        ])
+        self.addCleanup(fake.stop)
+        self.addCleanup(release.set)
+        timeouts = Timeouts(connect=2, listing=2, first_byte=3, idle=3, total=1)
+        backend = OllamaBackend(BackendConfig("ol", "ollama", fake.url), Transport(timeouts), 2048, 256)
+        runner = GenerationRunner(self.conversations, ModelRegistry([backend]), num_ctx=2048, reply_tokens=256)
+        first = runner.send(self.conversations.create(), "first request", MODEL)
+        self.assertTrue(fake.request_seen.wait(3))
+        second = runner.send(self.conversations.create(), "queued request", MODEL)
+
+        self.assertTrue(first.finished.wait(3))  # its own one-second deadline expires while the backend is held
+        self.assertEqual(first.snapshot()["error"]["reason"], "deadline")
+        self.assertTrue(second.finished.wait(3))  # it receives a fresh deadline after acquiring the ticket
+        self.assertEqual(second.snapshot()["state"], "done")
+
+    def test_three_facts_are_recovered_with_a_question_focused_bounded_window(self):
+        self.assertEqual(OVERFLOW_CONFIG, {"num_ctx": NUM_CTX, "max_reply_tokens": MAX_REPLY_TOKENS,
+                                           "chunk_size_fraction": CHUNK_SIZE_FRACTION})
+        text, facts = primary_document()
+        scripts = script_for(text, {"opening project marker": facts[0],
+                                    "hidden project marker": facts[1],
+                                    "closing project marker": facts[2]})
+        chunk_count = len(scripts)
+        release = threading.Event()
+        scripts[0] = [("hold", release)] + scripts[0]
+        fake, runner = self.overflow_runner(*scripts, ollama_reply(["COBALT, VIOLET, MARIGOLD"]),
+                                            ollama_reply(["queued turn finished"]))
+        conv = self.conversations.create()
+        with self.assertRaises(ContextTooLarge):
+            choose_window([(0, msg(text))], "", MODEL, runner.estimator, runner.budget)
+        gen = runner.send(conv, text, MODEL)
+        self.assertTrue(fake.request_seen.wait(5))
+        _snapshot, events = gen.subscribe()
+        queued = runner.send(self.conversations.create(), "queued ordinary message", MODEL)
+        release.set()
+        live = drain(events)
+        self.assertEqual(outcome(gen.snapshot(), live)["type"], "done")
+        self.assertEqual(outcome(*watch(queued))["type"], "done")
+        self.assertGreaterEqual(sum(event["type"] == "progress" for event in live), chunk_count)
+
+        self.assertEqual(fake.requests[-1]["body"]["messages"][-1]["content"], "queued ordinary message")
+        self.assertIn("Derived middle", fake.requests[-2]["body"]["messages"][-1]["content"])
+        final_prompt = "\n".join(item["content"] for item in fake.requests[-2]["body"]["messages"])
+        self.assertTrue(all(fact in final_prompt for fact in facts))
+        question = text[text.rfind("Question:"):]
+        self.assertIn(question, final_prompt)
+        window_record = self.conversations.get(conv)["window"]
+        derived = window_record["derived"]
+        self.assertEqual((derived["method"], derived["version"]), ("extractive_map_reduce", 2))
+        self.assertGreaterEqual(derived["depth"], 1)
+        self.assertLessEqual(derived["depth"], overflow.MAX_DEPTH)
+        self.assertEqual(derived["text"], fake.requests[-2]["body"]["messages"][-1]["content"])
+        source = next(event for event in self.store.read(conversation_id=conv) if event.kind == "turn.user")
+        self.assertTrue(all(entry["event_id"] == source.seq for entry in derived["sources"]))
+        self.assertTrue(all(entry["source_sha256"] == hashlib.sha256(text.encode()).hexdigest()
+                            for entry in derived["sources"]))
+        self.assertTrue(all(any(fact in text[s["char_range"][0]:s["char_range"][1]] for s in derived["sources"])
+                            for fact in facts))
+        extractor_calls = [request for request in fake.requests
+                           if "copying tool" in request["body"]["messages"][0]["content"]]
+        self.assertLessEqual(len(extractor_calls), overflow.MAX_MODEL_CALLS)
+
+    def test_mid_document_fact_among_distractors_is_retained(self):
+        text, fact = middle_document()
+        scripts = script_for(text, {"mid-document access code": fact})
+        fake, runner = self.overflow_runner(*scripts, ollama_reply(["JUNIPER"]))
+        gen = runner.send(self.conversations.create(), text, MODEL)
+        self.assertEqual(outcome(*watch(gen))["type"], "done")
+        self.assertIn(fact, fake.requests[-1]["body"]["messages"][-1]["content"])
+
+    def test_hardwrapped_unpunctuated_fixture_uses_exact_source_spans(self):
+        text, fact = hardwrapped_document()
+        scripts = script_for(text, {"hidden access code": fact})
+        fake, runner = self.overflow_runner(*scripts, ollama_reply(["SILVER FERN"]))
+        gen = runner.send(self.conversations.create(), text, MODEL)
+        self.assertEqual(outcome(*watch(gen))["type"], "done")
+        self.assertIn(fact, fake.requests[-1]["body"]["messages"][-1]["content"])
+        question_range = gen.snapshot()["window"]["derived"]["sources"][-1]["char_range"]
+        self.assertEqual(text[slice(*question_range)], text[text.index("Question:"):])
+
+    def test_span_validation_normalizes_whitespace_and_merges_overlap(self):
+        source = "one\n  exact   source\tspan\nnext"
+        span = overflow.find_exact_span(source, "exact source span")
+        self.assertIsNotNone(span)
+        self.assertEqual(overflow.normalize_sentence(source[slice(*span)]), "exact source span")
+        units = overflow.sentences("alpha\nbeta\ngamma")
+        merged = overflow.snap_and_merge([(0, 7), (5, 13)], units)
+        self.assertEqual([(item.start, item.end) for item in merged], [(0, 16)])
+
+    def test_chunks_overlap_by_about_twelve_percent(self):
+        items = [overflow.Sentence(i * 10, i * 10 + 10, "x" * 10) for i in range(30)]
+        parts = overflow.chunks(items, 100)
+        overlap = len(set(item.start for item in parts[0]) & set(item.start for item in parts[1]))
+        self.assertGreaterEqual(overlap / len(parts[0]), 0.10)
+        self.assertLessEqual(overlap / len(parts[0]), 0.15)
+
+    def test_chunks_measure_empty_merged_spans_by_offsets(self):
+        spans = [overflow.Sentence(i * 77, (i + 1) * 77, "") for i in range(20)]
+        parts = overflow.chunks(spans, 500)
+        self.assertEqual(sum(span.end - span.start for span in spans), 1540)
+        self.assertEqual(len(parts), 4)
+        self.assertTrue(all(sum(span.end - span.start for span in part) <= 500 for part in parts))
+
+    def test_oversized_merged_span_is_restored_to_source_units_before_chunking(self):
+        units = [overflow.Sentence(i * 100, (i + 1) * 100, "x" * 100) for i in range(10)]
+        merged = [overflow.Sentence(0, 1000, "")]
+        parts = overflow.chunks(merged, 250, units=units)
+        self.assertGreaterEqual(len(parts), 4)
+        self.assertTrue(all(sum(unit.end - unit.start for unit in part) <= 250 for part in parts))
+        self.assertEqual({unit.start for part in parts for unit in part}, {unit.start for unit in units})
+
+    def test_recursive_reduction_splits_first_pass_selection_into_multiple_chunks(self):
+        text, facts = primary_document()
+        payload = text[:text.rfind("Question:")].rstrip()
+        estimator = TokenEstimator()
+        budget = budget_tokens(NUM_CTX, MAX_REPLY_TOKENS)
+        head, tail = overflow.keep_ends(payload, MODEL, estimator, budget)
+        protected = {item.start for item in head + tail}
+        middle = [item for item in overflow.sentences(payload) if item.start not in protected]
+        max_chars = int(NUM_CTX * CHUNK_SIZE_FRACTION * estimator.ratio(MODEL))
+        parts = overflow.chunks(middle, max_chars)
+        units = overflow.sentences(payload)
+        selected = overflow.snap_and_merge([(middle[0].start, middle[-1].end)], units)
+        reduce_parts = overflow.chunks(selected, max_chars, units=units)
+        self.assertGreaterEqual(len(reduce_parts), 2)
+        scripts = [ollama_reply(["\n".join(item.text for item in part)]) for part in parts]
+        scripts.extend(ollama_reply([facts[1] if any(facts[1] in item.text for item in part) else "NONE"])
+                       for part in reduce_parts)
+        scripts.append(ollama_reply(["VIOLET"]))
+        fake, runner = self.overflow_runner(*scripts)
+        gen = runner.send(self.conversations.create(), text, MODEL)
+        self.assertEqual(outcome(*watch(gen))["type"], "done")
+        derived = gen.snapshot()["window"]["derived"]
+        self.assertEqual(derived["depth"], 2)
+        self.assertLessEqual(derived["depth"], overflow.MAX_DEPTH)
+        extractor_calls = [request for request in fake.requests
+                           if "copying tool" in request["body"]["messages"][0]["content"]]
+        self.assertEqual(len(extractor_calls), len(parts) + len(reduce_parts))
+        self.assertIn(facts[1], fake.requests[-1]["body"]["messages"][-1]["content"])
+
+    def test_non_shrinking_reduction_fails_closed(self):
+        text, _facts = primary_document()
+        payload = text[:text.rfind("Question:")].rstrip()
+        estimator = TokenEstimator()
+        budget = budget_tokens(NUM_CTX, MAX_REPLY_TOKENS)
+        head, tail = overflow.keep_ends(payload, MODEL, estimator, budget)
+        protected = {item.start for item in head + tail}
+        middle = [item for item in overflow.sentences(payload) if item.start not in protected]
+        max_chars = int(NUM_CTX * CHUNK_SIZE_FRACTION * estimator.ratio(MODEL))
+        parts = overflow.chunks(middle, max_chars)
+        units = overflow.sentences(payload)
+        selected = overflow.snap_and_merge([(middle[0].start, middle[-1].end)], units)
+        reduce_parts = overflow.chunks(selected, max_chars, units=units)
+        scripts = [ollama_reply(["\n".join(item.text for item in part)]) for part in parts]
+        scripts.extend(ollama_reply(["\n".join(item.text for item in part)]) for part in reduce_parts)
+        fake, runner = self.overflow_runner(*scripts)
+        result = outcome(*watch(runner.send(self.conversations.create(), text, MODEL)))
+        self.assertEqual((result["type"], result["error"]["reason"]), ("failed", "context_exceeded"))
+        self.assertIn("did not strictly shrink", result["error"]["message"])
+        self.assertEqual(len(fake.requests), len(parts) + len(reduce_parts))
+
+    def test_total_extraction_model_call_cap_fails_closed(self):
+        text, _facts = primary_document()
+        fake, runner = self.overflow_runner(ollama_reply(["unused"]))
+        with mock.patch.object(overflow, "MAX_MODEL_CALLS", 0):
+            gen = runner.send(self.conversations.create(), text, MODEL)
+            result = outcome(*watch(gen))
+        self.assertEqual((result["type"], result["error"]["reason"]), ("failed", "context_exceeded"))
+        self.assertIn("model-call limit", result["error"]["message"])
+        self.assertEqual(fake.requests, [])
+
+    def test_extraction_refuses_documents_that_exceed_the_chunk_cap(self):
+        text = "\n".join(f"Unrelated archive item {i} records routine status without a project fact."
+                         for i in range(500)) + "\nQuestion: What fact is recorded?"
+        fake, runner = self.overflow_runner(ollama_reply(["unused"]))
+        gen = runner.send(self.conversations.create(), text, MODEL)
+        result = outcome(*watch(gen))
+        self.assertEqual((result["type"], result["error"]["reason"]), ("failed", "context_exceeded"))
+        self.assertEqual(fake.requests, [])
+
+    def test_context_diagnostic_is_preserved_with_supported_question_shape_hint(self):
+        fake, runner = self.overflow_runner()
+        conv = self.conversations.create()
+        gen = runner.send(conv, "a very large message with no parsed question " * 500, MODEL)
+        result = outcome(*watch(gen))
+        self.assertEqual((result["type"], result["error"]["reason"]), ("failed", "context_exceeded"))
+        self.assertIn("This message needs about", result["error"]["message"])
+        self.assertIn("at most", result["error"]["message"])
+        self.assertIn("fit in the model's context", result["error"]["message"])
+        self.assertIn("final explicit Question: section", result["error"]["message"])
+        self.assertEqual(fake.requests, [])
+
+    def test_oversized_system_prompt_fails_before_retrieval_or_backend_call(self):
+        fake = FakeBackend("ollama")
+        self.addCleanup(fake.stop)
+        backend = OllamaBackend(BackendConfig("ol", "ollama", fake.url), Transport(PATIENT), NUM_CTX, 256)
+        runner = GenerationRunner(self.conversations, ModelRegistry([backend]),
+                                  system_prompt="system " * 1000, num_ctx=NUM_CTX, reply_tokens=256)
+        class MemorySpy:
+            def retrieve(self, *args):
+                raise AssertionError("retrieval must not run for an oversized system prompt")
+        runner.memory = MemorySpy()
+        gen = runner.send(self.conversations.create(), "ordinary message", MODEL)
+        result = outcome(*watch(gen))
+        self.assertEqual((result["type"], result["error"]["reason"]), ("failed", "context_exceeded"))
+        self.assertIn("system prompt alone needs", result["error"]["message"])
+        self.assertEqual(fake.requests, [])
+
+    def test_oversized_retrieval_uses_only_bounded_question_query(self):
+        text, _facts = primary_document()
+        fake, runner = self.overflow_runner(*script_for(text, {}))
+        class MemorySpy:
+            query = None
+            def retrieve(self, query, _conversation_id, _events):
+                self.query = query
+                return []
+        spy = MemorySpy()
+        runner.memory = spy
+        gen = runner.send(self.conversations.create(), text, MODEL)
+        outcome(*watch(gen))
+        self.assertIsNotNone(spy.query)
+        self.assertTrue(spy.query.startswith("Question:"))
+        self.assertLess(len(spy.query), len(text) // 3)
+
+    def test_reactive_context_retry_is_not_enabled_for_llamacpp(self):
+        fake = FakeBackend("llamacpp", scripts=[[('status', 400, 'context length exceeded')]])
+        self.addCleanup(fake.stop)
+        backend = LlamaCppBackend(BackendConfig("ll", "llamacpp", fake.url), Transport(PATIENT),
+                                  NUM_CTX, MAX_REPLY_TOKENS)
+        runner = GenerationRunner(self.conversations, ModelRegistry([backend]), num_ctx=NUM_CTX,
+                                  reply_tokens=MAX_REPLY_TOKENS)
+        gen = runner.send(self.conversations.create(), "short question", "ll:m:1")
+        result = outcome(*watch(gen))
+        self.assertEqual((result["type"], result["error"]["reason"]), ("failed", "context_exceeded"))
+        self.assertEqual(len(fake.requests), 1)
+
+    def test_reactive_context_error_retries_once_through_fallback(self):
+        distractors = [f"Routine archive row {i} contains only unrelated status information."
+                       for i in range(35)]
+        fact = "The reactive fallback marker is AMBER."
+        payload = "\n".join([*distractors[:17], fact, *distractors[17:]])
+        text = payload + "\nQuestion: What is the reactive fallback marker?"
+        self.assertLessEqual(TokenEstimator().messages(MODEL, [msg(text)]), budget_tokens(NUM_CTX, MAX_REPLY_TOKENS))
+        scripts = script_for(text, {"reactive fallback marker": fact})
+        release = threading.Event()
+        scripts[0] = [("hold", release)] + scripts[0]
+        overflow_error = ("status", 400, "the input length exceeds the context length")
+        fake, runner = self.overflow_runner([overflow_error], *scripts, ollama_reply(["AMBER"]))
+        conv = self.conversations.create()
+        gen = runner.send(conv, text, MODEL)
+        self.assertTrue(fake.request_seen.wait(5))
+        _snapshot, events = gen.subscribe()
+        deadline = time.monotonic() + 5
+        while len(fake.requests) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertGreaterEqual(len(fake.requests), 2)
+        release.set()
+        live = drain(events)
+        self.assertTrue(any(event["type"] == "reset" for event in live))
+        self.assertEqual(outcome(gen.snapshot(), live)["type"], "done")
+        self.assertIn(fact, fake.requests[-1]["body"]["messages"][-1]["content"])
+        self.assertEqual(sum(1 for request in fake.requests if request["body"].get("truncate") is False),
+                         len(fake.requests))
+
+    def test_no_relevant_source_sentence_fails_visibly_and_later_chat_recovers(self):
+        text = negative_document()
+        scripts = script_for(text, {})
+        fake, runner = self.overflow_runner(*scripts, ollama_reply(["ordinary recovery works"]))
+        conv = self.conversations.create()
+        failed = runner.send(conv, text, MODEL)
+        result = outcome(*watch(failed))
+        self.assertEqual((result["type"], result["error"]["reason"]), ("failed", "context_exceeded"))
+        self.assertEqual(len(fake.requests), len(scripts))  # no final answer call after empty extraction
+        self.assertEqual(self.conversations.get(conv)["turns"][0]["text"], text)
+        self.talk(runner, conv, ["short follow-up"])
+        self.assertEqual(fake.requests[-1]["body"]["messages"][-1]["content"], "short follow-up")
+
+    def test_partial_extractor_text_is_not_exposed_as_a_failed_assistant_answer(self):
+        text, _facts = primary_document()
+        fake, runner = self.overflow_runner([ollama_chunk("internal extraction fragment"), ("reset",)])
+        conv = self.conversations.create()
+        gen = runner.send(conv, text, MODEL)
+        result = outcome(*watch(gen))
+        self.assertEqual((result["type"], result["error"]["reason"]), ("failed", "connection_reset"))
+        self.assertEqual(result["error"]["partial_text"], "")
+        self.assertEqual(self.conversations.get(conv)["turns"][-1]["text"], "")
 
     def test_the_running_message_and_snapshot_carry_the_window(self):
         release = threading.Event()
